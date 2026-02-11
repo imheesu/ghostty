@@ -105,6 +105,9 @@ extension Ghostty {
         // Cancellable for search state needle changes
         private var searchNeedleCancellable: AnyCancellable?
 
+        // The current editor state. When non-nil, the editor UI is shown.
+        @Published var editorState: EditorState? = nil
+
         // The time this surface last became focused. This is a ContinuousClock.Instant
         // on supported platforms.
         @Published var focusInstant: ContinuousClock.Instant?
@@ -1677,6 +1680,18 @@ extension Ghostty {
             if !ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
+        }
+
+        @IBAction func toggleFilePicker(_ sender: Any?) {
+            if editorState != nil {
+                editorState = nil
+            } else if let pwd = self.pwd {
+                editorState = EditorState(rootDirectory: URL(fileURLWithPath: pwd))
+            }
+        }
+
+        @IBAction func closeEditor(_ sender: Any?) {
+            editorState = nil
         }
 
         @IBAction func changeTitle(_ sender: Any) {
