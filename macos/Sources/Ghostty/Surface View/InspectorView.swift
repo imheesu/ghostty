@@ -4,7 +4,7 @@ import SwiftUI
 import GhosttyKit
 
 extension Ghostty {
-    /// InspectableSurface is a type of Surface view that allows an inspector to be attached.
+    /// InspectableSurface is a type of Surface view that allows an inspector or editor to be attached.
     struct InspectableSurface: View {
         @EnvironmentObject var ghostty: Ghostty.App
 
@@ -23,7 +23,15 @@ extension Ghostty {
             let pubInspector = center.publisher(for: Notification.didControlInspector, object: surfaceView)
 
             ZStack {
-                if (!surfaceView.inspectorVisible) {
+                if let editorState = surfaceView.editorState {
+                    // Editor mode: delegate to EditorContainerView which observes editorState directly
+                    EditorContainerView(
+                        surfaceView: surfaceView,
+                        editorState: editorState,
+                        isSplit: isSplit
+                    )
+                    .environmentObject(ghostty)
+                } else if (!surfaceView.inspectorVisible) {
                     SurfaceWrapper(surfaceView: surfaceView, isSplit: isSplit)
                 } else {
                     SplitView(.vertical, $split, dividerColor: ghostty.config.splitDividerColor, left: {
@@ -52,6 +60,12 @@ extension Ghostty {
                     Ghostty.moveFocus(to: surfaceView)
                 }
             }
+            .onChange(of: surfaceView.editorState == nil) { isNil in
+                if isNil {
+                    // Editor was closed entirely, restore focus to terminal
+                    Ghostty.moveFocus(to: surfaceView)
+                }
+            }
         }
 
         private func onControlInspector(_ notification: SwiftUI.Notification) {
@@ -71,6 +85,41 @@ extension Ghostty {
 
             default:
                 return
+            }
+        }
+    }
+
+    /// Separate view that directly observes EditorState to handle nested ObservableObject updates.
+    /// This solves the problem where changes to editorState.mode wouldn't trigger SwiftUI updates
+    /// when observed through surfaceView.editorState?.mode (nested ObservableObject issue).
+    struct EditorContainerView: View {
+        @EnvironmentObject var ghostty: Ghostty.App
+        @ObservedObject var surfaceView: SurfaceView
+        @ObservedObject var editorState: EditorState
+        var isSplit: Bool
+
+        @State private var filePickerSplit: CGFloat = 0.7
+
+        var body: some View {
+            switch editorState.mode {
+            case .filePicker:
+                SplitView(.horizontal, $filePickerSplit, dividerColor: ghostty.config.splitDividerColor, left: {
+                    SurfaceWrapper(surfaceView: surfaceView, isSplit: isSplit)
+                }, right: {
+                    FilePickerView(
+                        editorState: editorState,
+                        onFileSelected: { _ in },
+                        onClose: { surfaceView.editorState = nil }
+                    )
+                }, onEqualize: {
+                    filePickerSplit = 0.7
+                })
+            case .editing:
+                EditorPaneView(
+                    editorState: editorState,
+                    surfaceView: surfaceView,
+                    onClose: { surfaceView.editorState = nil }
+                )
             }
         }
     }

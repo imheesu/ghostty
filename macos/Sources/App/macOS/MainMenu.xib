@@ -357,6 +357,11 @@
                                 </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="bC9-n9-RbJ"/>
+                            <menuItem title="File Explorer" keyEquivalent="r" id="Edt-FP-001">
+                                <connections>
+                                    <action selector="toggleFilePicker:" target="-1" id="Edt-FP-002"/>
+                                </connections>
+                            </menuItem>
                             <menuItem title="Terminal Inspector" id="QwP-M5-fvh">
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>

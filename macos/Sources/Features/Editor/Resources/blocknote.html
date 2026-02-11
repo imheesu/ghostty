@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@blocknote/core@0.46.2/dist/style.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@blocknote/mantine@0.46.2/dist/style.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; }
+    #root { width: 100%; height: 100%; }
+    #loading-indicator {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: #888;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <div id="loading-indicator">Loading BlockNote...</div>
+
+  <script type="module">
+    // Helper: safely post a message to the native host
+    function postMessage(name, body) {
+      try {
+        if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers[name]) {
+          window.webkit.messageHandlers[name].postMessage(body);
+        }
+      } catch (e) {
+        console.error('postMessage error:', name, e);
+      }
+    }
+
+    // Load React + BlockNote from esm.sh CDN in parallel (shared React deps)
+    const [React, ReactDOM, bnCore, bnMantine] = await Promise.all([
+      import("https://esm.sh/react@19"),
+      import("https://esm.sh/react-dom@19/client"),
+      import("https://esm.sh/@blocknote/core@0.46.2?deps=react@19,react-dom@19"),
+      import("https://esm.sh/@blocknote/mantine@0.46.2?deps=react@19,react-dom@19"),
+    ]);
+    const { BlockNoteEditor } = bnCore;
+    const { useCreateBlockNote, BlockNoteView } = bnMantine;
+
+    let editorInstance = null;
+    let pendingMarkdown = null;
+    let autoSaveTimer = null;
+    let skipAutoSave = false;  // Suppress auto-save during programmatic content updates
+
+    // JS Bridge: called from Swift to set markdown content
+    window.setMarkdown = async function(text) {
+      if (editorInstance) {
+        skipAutoSave = true;
+        const blocks = await editorInstance.tryParseMarkdownToBlocks(text);
+        editorInstance.replaceBlocks(editorInstance.document, blocks);
+        // Re-enable auto-save after a short delay to skip any trailing onChange events
+        setTimeout(() => { skipAutoSave = false; }, 200);
+      } else {
+        // Editor not ready yet; store for when useEffect fires
+        pendingMarkdown = text;
+      }
+    };
+
+    // JS Bridge: called from Swift to get current content as markdown
+    window.getMarkdown = async function() {
+      if (editorInstance) {
+        return await editorInstance.blocksToMarkdownLossy(editorInstance.document);
+      }
+      return '';
+    };
+
+    // React component (no JSX - using createElement directly)
+    const h = React.createElement;
+
+    function App() {
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const editor = useCreateBlockNote();
+
+      React.useEffect(() => {
+        editorInstance = editor;
+        // Apply any content that arrived before the editor was ready
+        if (pendingMarkdown !== null) {
+          window.setMarkdown(pendingMarkdown);
+          pendingMarkdown = null;
+        }
+      }, [editor]);
+
+      // Debounced auto-save on content change
+      const handleChange = React.useCallback(() => {
+        if (skipAutoSave) return;
+        if (autoSaveTimer) clearTimeout(autoSaveTimer);
+        autoSaveTimer = setTimeout(async () => {
+          const md = await window.getMarkdown();
+          postMessage('autoSave', { content: md });
+        }, 1000);
+      }, []);
+
+      return h(BlockNoteView, { editor, theme: prefersDark ? 'dark' : 'light', onChange: handleChange });
+    }
+
+    // Mount the app
+    document.getElementById('loading-indicator').style.display = 'none';
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(h(App));
+
+    // Keyboard shortcuts: Cmd+S → save, Cmd+E → switch to Monaco mode
+    document.addEventListener('keydown', async (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        e.preventDefault();
+        const md = await window.getMarkdown();
+        postMessage('save', { content: md });
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'e') {
+        e.preventDefault();
+        const md = await window.getMarkdown();
+        postMessage('switchMode', { content: md });
+      }
+    });
+
+    // Signal readiness to Swift
+    postMessage('ready', true);
+  </script>
+</body>
+</html>

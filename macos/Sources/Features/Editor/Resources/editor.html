@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ghostty Editor</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: transparent; }
+    #editor-container { width: 100%; height: 100%; }
+    #markdown-preview {
+        width: 100%;
+        height: 100%;
+        padding: 24px 32px;
+        overflow-y: auto;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+        font-size: 15px;
+        line-height: 1.6;
+        color: #d4d4d4;
+        background: #1e1e1e;
+        display: none;
+    }
+    #markdown-preview h1 { font-size: 2em; margin: 0.5em 0; border-bottom: 1px solid #333; padding-bottom: 0.3em; }
+    #markdown-preview h2 { font-size: 1.5em; margin: 0.5em 0; border-bottom: 1px solid #333; padding-bottom: 0.3em; }
+    #markdown-preview h3 { font-size: 1.25em; margin: 0.5em 0; }
+    #markdown-preview code { background: #2d2d2d; padding: 2px 6px; border-radius: 3px; font-family: monospace; }
+    #markdown-preview pre { background: #2d2d2d; padding: 16px; border-radius: 6px; overflow-x: auto; margin: 1em 0; }
+    #markdown-preview pre code { background: none; padding: 0; }
+    #markdown-preview a { color: #569cd6; }
+    #markdown-preview blockquote { border-left: 4px solid #444; padding-left: 16px; color: #999; margin: 1em 0; }
+    #markdown-preview table { border-collapse: collapse; margin: 1em 0; }
+    #markdown-preview th, #markdown-preview td { border: 1px solid #444; padding: 6px 12px; }
+    #markdown-preview img { max-width: 100%; }
+    #toolbar {
+        position: fixed;
+        top: 8px;
+        right: 48px;
+        z-index: 100;
+        display: none;
+    }
+    #toolbar button {
+        background: rgba(60, 60, 60, 0.9);
+        color: #ccc;
+        border: 1px solid #555;
+        padding: 4px 12px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+        font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    #toolbar button:hover { background: rgba(80, 80, 80, 0.9); color: #fff; }
+    #toolbar button.active { background: rgba(50, 100, 150, 0.9); color: #fff; }
+    #loading-indicator {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        color: #888;
+        font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+        font-size: 14px;
+    }
+
+    @media (prefers-color-scheme: light) {
+        #markdown-preview {
+            color: #1e1e1e;
+            background: #ffffff;
+        }
+        #markdown-preview h1, #markdown-preview h2 { border-bottom-color: #ddd; }
+        #markdown-preview code { background: #f0f0f0; }
+        #markdown-preview pre { background: #f5f5f5; }
+        #markdown-preview a { color: #0366d6; }
+        #markdown-preview blockquote { border-left-color: #ddd; color: #666; }
+        #markdown-preview th, #markdown-preview td { border-color: #ddd; }
+    }
+</style>
+</head>
+<body>
+    <div id="editor-container"></div>
+    <div id="markdown-preview"></div>
+    <div id="toolbar">
+        <button id="btn-edit" class="active" onclick="switchView('edit')">Edit</button>
+        <button id="btn-preview" onclick="switchView('preview')">Preview</button>
+    </div>
+    <div id="loading-indicator">Loading editor...</div>
+
+    <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@15.0.6/marked.min.js"></script>
+
+    <script>
+        let editor = null;
+        let currentType = 'monaco';
+        let currentContent = '';
+        let isMarkdown = false;
+        let pendingLanguage = null;
+
+        // Helper: safely post a message to the native host
+        function postMessage(name, body) {
+            try {
+                if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers[name]) {
+                    window.webkit.messageHandlers[name].postMessage(body);
+                }
+            } catch (e) {
+                console.error('postMessage error:', name, e);
+            }
+        }
+
+        // Configure Monaco AMD loader (if available)
+        if (typeof require !== 'undefined' && require.config) {
+            require.config({
+                paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs' }
+            });
+        }
+
+        // Global API: Initialize the editor
+        window.initEditor = function(type, language) {
+            currentType = type;
+            isMarkdown = (type === 'markdown');
+            pendingLanguage = language;
+
+            if (isMarkdown) {
+                document.getElementById('toolbar').style.display = 'block';
+            }
+
+            if (typeof require === 'undefined') {
+                console.error('Monaco loader not available');
+                document.getElementById('loading-indicator').textContent = 'Editor failed to load (CDN unavailable)';
+                return;
+            }
+
+            require(['vs/editor/editor.main'], function() {
+                var container = document.getElementById('editor-container');
+                var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                var loadingEl = document.getElementById('loading-indicator');
+                if (loadingEl) loadingEl.style.display = 'none';
+
+                editor = monaco.editor.create(container, {
+                    value: '',
+                    language: language,
+                    theme: prefersDark ? 'vs-dark' : 'vs',
+                    minimap: { enabled: false },
+                    lineNumbers: 'on',
+                    wordWrap: 'on',
+                    fontSize: 14,
+                    automaticLayout: true,
+                    scrollBeyondLastLine: false,
+                    padding: { top: 8 }
+                });
+
+                // Apply the latest content (may have arrived while Monaco was loading)
+                if (currentContent) {
+                    editor.setValue(currentContent);
+                }
+
+                // Bind Cmd+S to save
+                editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, function() {
+                    postMessage('save', { content: editor.getValue() });
+                });
+
+                // Listen for color scheme changes
+                window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e) {
+                    monaco.editor.setTheme(e.matches ? 'vs-dark' : 'vs');
+                });
+            }, function(err) {
+                // Monaco require() error callback
+                console.error('Failed to load Monaco Editor:', err);
+                document.getElementById('loading-indicator').textContent = 'Editor failed to load';
+            });
+        };
+
+        // Global API: Set editor content
+        window.setContent = function(text) {
+            currentContent = text;
+            if (editor) {
+                editor.setValue(text);
+            }
+            if (isMarkdown) {
+                updateMarkdownPreview();
+            }
+        };
+
+        // Global API: Get current editor content
+        window.getContent = function() {
+            if (editor) {
+                return editor.getValue();
+            }
+            return currentContent;
+        };
+
+        // Global API: Set editor theme colors (optional customization)
+        window.setTheme = function(bgColor, fgColor) {
+            // Reserved for future Ghostty theme integration
+        };
+
+        // Switch between edit and preview for markdown
+        function switchView(mode) {
+            var container = document.getElementById('editor-container');
+            var preview = document.getElementById('markdown-preview');
+            var btnEdit = document.getElementById('btn-edit');
+            var btnPreview = document.getElementById('btn-preview');
+
+            if (mode === 'edit') {
+                container.style.display = 'block';
+                preview.style.display = 'none';
+                btnEdit.classList.add('active');
+                btnPreview.classList.remove('active');
+                if (editor) { editor.layout(); }
+            } else {
+                container.style.display = 'none';
+                preview.style.display = 'block';
+                btnEdit.classList.remove('active');
+                btnPreview.classList.add('active');
+                updateMarkdownPreview();
+            }
+        }
+
+        function updateMarkdownPreview() {
+            var preview = document.getElementById('markdown-preview');
+            var content = editor ? editor.getValue() : currentContent;
+            if (typeof marked !== 'undefined' && marked.parse) {
+                // Sanitize: strip script tags, event handlers, and dangerous elements
+                var rawHtml = marked.parse(content);
+                var sanitized = rawHtml
+                    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+                    .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]*)/gi, '')
+                    .replace(/<iframe\b[^>]*>.*?<\/iframe>/gi, '')
+                    .replace(/<object\b[^>]*>.*?<\/object>/gi, '')
+                    .replace(/<embed\b[^>]*>/gi, '');
+                preview.innerHTML = sanitized;
+            } else {
+                preview.innerText = content;
+            }
+        }
+
+        // Intercept Cmd+S and Cmd+E at the document level as a fallback
+        document.addEventListener('keydown', function(e) {
+            if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+                e.preventDefault();
+                postMessage('save', { content: window.getContent() });
+            }
+            // Cmd+E: switch to BlockNote mode (only for markdown files)
+            if (isMarkdown && (e.metaKey || e.ctrlKey) && e.key === 'e') {
+                e.preventDefault();
+                postMessage('switchMode', { content: window.getContent() });
+            }
+        });
+
+        // Signal readiness once DOM is loaded (not waiting for all external resources).
+        // The initEditor function handles Monaco loading asynchronously.
+        document.addEventListener('DOMContentLoaded', function() {
+            postMessage('ready', true);
+        });
+        // Fallback if DOMContentLoaded already fired
+        if (document.readyState !== 'loading') {
+            postMessage('ready', true);
+        }
+    </script>
+</body>
+</html>
