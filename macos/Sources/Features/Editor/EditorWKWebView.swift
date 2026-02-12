@@ -9,6 +9,24 @@ class EditorWKWebView: WKWebView {
     weak var surfaceView: Ghostty.SurfaceView?
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // Intercept editor-specific shortcuts before WKWebView consumes them.
+        // WKWebView handles Cmd+P internally (e.g. Print), preventing it from
+        // reaching the menu system where Quick Open is wired.
+        if event.type == .keyDown {
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+
+            // Cmd+P: Quick Open — return false so the menu bar handles it.
+            if flags == .command, event.charactersIgnoringModifiers == "p" {
+                return false
+            }
+
+            // Cmd+B: Close editor and return to terminal.
+            if flags == .command, event.charactersIgnoringModifiers == "b" {
+                surfaceView?.closeEditor(nil)
+                return true
+            }
+        }
+
         // Let WKWebView handle standard editing shortcuts (Cmd+C/V/X/A/Z etc.) first.
         if super.performKeyEquivalent(with: event) {
             return true

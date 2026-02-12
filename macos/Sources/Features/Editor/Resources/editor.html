@@ -151,6 +151,12 @@
                     editor.setValue(currentContent);
                 }
 
+                // Apply Ghostty config if it arrived before Monaco loaded
+                if (window._ghosttyConfig) {
+                    var cfg = window._ghosttyConfig;
+                    window.applyGhosttyConfig(cfg.fontSize, cfg.fontFamily, cfg.bgColor, cfg.fgColor);
+                }
+
                 // Bind Cmd+S to save
                 editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, function() {
                     postMessage('save', { content: editor.getValue() });
@@ -190,6 +196,45 @@
         window.setTheme = function(bgColor, fgColor) {
             // Reserved for future Ghostty theme integration
         };
+
+        // Global API: Apply Ghostty terminal configuration to the editor.
+        // Called from Swift via evaluateJavaScript when config is available or changes.
+        window.applyGhosttyConfig = function(fontSize, fontFamily, bgColor, fgColor) {
+            // Store config so it can be applied if Monaco hasn't loaded yet
+            window._ghosttyConfig = { fontSize, fontFamily, bgColor, fgColor };
+
+            if (!editor) return;
+
+            // Apply font settings
+            var opts = { fontSize: fontSize };
+            if (fontFamily) { opts.fontFamily = fontFamily; }
+            editor.updateOptions(opts);
+
+            // Determine if background is light or dark based on luminance
+            var isLight = hexIsLight(bgColor);
+
+            // Define and apply a custom Ghostty theme
+            monaco.editor.defineTheme('ghostty', {
+                base: isLight ? 'vs' : 'vs-dark',
+                inherit: true,
+                rules: [],
+                colors: {
+                    'editor.background': bgColor,
+                    'editorCursor.foreground': fgColor
+                }
+            });
+            monaco.editor.setTheme('ghostty');
+        };
+
+        // Helper: determine if a hex color is "light" by computing relative luminance
+        function hexIsLight(hex) {
+            var r = parseInt(hex.slice(1, 3), 16) / 255;
+            var g = parseInt(hex.slice(3, 5), 16) / 255;
+            var b = parseInt(hex.slice(5, 7), 16) / 255;
+            // sRGB luminance formula
+            var lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+            return lum > 0.5;
+        }
 
         // Switch between edit and preview for markdown
         function switchView(mode) {

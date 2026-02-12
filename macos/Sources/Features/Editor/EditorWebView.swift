@@ -1,11 +1,36 @@
 import SwiftUI
 import WebKit
 
+/// Holds Ghostty configuration values to apply to the embedded editor.
+struct EditorConfig: Equatable {
+    let fontSize: Float
+    let fontFamily: String?
+    let backgroundColorHex: String
+    let foregroundColorHex: String
+
+    init(from config: Ghostty.Config) {
+        self.fontSize = config.fontSize
+        self.fontFamily = config.fontFamily
+        let bgColor = OSColor(config.backgroundColor)
+        self.backgroundColorHex = bgColor.hexString ?? "#1E1E1E"
+        let fgColor = OSColor(config.foregroundColor)
+        self.foregroundColorHex = fgColor.hexString ?? "#D4D4D4"
+    }
+
+    init() {
+        self.fontSize = 13.0
+        self.fontFamily = nil
+        self.backgroundColorHex = "#1E1E1E"
+        self.foregroundColorHex = "#D4D4D4"
+    }
+}
+
 /// Wraps a WKWebView that hosts Monaco Editor or BlockNote (for markdown files).
 /// Communicates with JavaScript through message handlers for save/close/ready/switchMode events.
 struct EditorWebView: NSViewRepresentable {
     let fileInfo: EditorState.FileInfo
     let surfaceView: Ghostty.SurfaceView
+    let editorConfig: EditorConfig
     let onSave: (String) -> Void
     let onAutoSave: ((String) -> Void)?
     let onClose: () -> Void
@@ -14,6 +39,7 @@ struct EditorWebView: NSViewRepresentable {
     func makeCoordinator() -> Coordinator {
         Coordinator(
             fileInfo: fileInfo,
+            editorConfig: editorConfig,
             onSave: onSave,
             onAutoSave: onAutoSave,
             onClose: onClose,
@@ -85,6 +111,14 @@ struct EditorWebView: NSViewRepresentable {
                 coordinator.sendContentToEditor()
             }
         }
+
+        // If the editor config changed, re-apply it
+        if coordinator.editorConfig != editorConfig {
+            coordinator.editorConfig = editorConfig
+            if coordinator.isEditorReady {
+                coordinator.applyEditorConfig()
+            }
+        }
     }
 
     /// Clean up message handlers when the view is removed to prevent leaks.
@@ -153,6 +187,7 @@ struct EditorWebView: NSViewRepresentable {
 
     class Coordinator: NSObject, WKScriptMessageHandler {
         var fileInfo: EditorState.FileInfo
+        var editorConfig: EditorConfig
         let onSave: (String) -> Void
         let onAutoSave: ((String) -> Void)?
         let onClose: () -> Void
@@ -167,12 +202,14 @@ struct EditorWebView: NSViewRepresentable {
 
         init(
             fileInfo: EditorState.FileInfo,
+            editorConfig: EditorConfig,
             onSave: @escaping (String) -> Void,
             onAutoSave: ((String) -> Void)?,
             onClose: @escaping () -> Void,
             onSwitchMode: ((String) -> Void)?
         ) {
             self.fileInfo = fileInfo
+            self.editorConfig = editorConfig
             self.onSave = onSave
             self.onAutoSave = onAutoSave
             self.onClose = onClose
@@ -188,6 +225,7 @@ struct EditorWebView: NSViewRepresentable {
             case "ready":
                 isEditorReady = true
                 initializeEditor()
+                applyEditorConfig()
 
             case "save":
                 if let body = message.body as? [String: Any],
@@ -261,6 +299,35 @@ struct EditorWebView: NSViewRepresentable {
                 return
             }
             callJS("setMarkdown(\(jsonString))")
+        }
+
+        /// Sends Ghostty config values to the editor's JS environment.
+        func applyEditorConfig() {
+            guard isEditorReady else { return }
+            let fontSize = editorConfig.fontSize
+            let fontFamily: String
+            if let family = editorConfig.fontFamily,
+               let data = try? JSONEncoder().encode(family),
+               let str = String(data: data, encoding: .utf8) {
+                fontFamily = str
+            } else {
+                fontFamily = "null"
+            }
+            let bgColor: String
+            if let data = try? JSONEncoder().encode(editorConfig.backgroundColorHex),
+               let str = String(data: data, encoding: .utf8) {
+                bgColor = str
+            } else {
+                bgColor = "\"#1E1E1E\""
+            }
+            let fgColor: String
+            if let data = try? JSONEncoder().encode(editorConfig.foregroundColorHex),
+               let str = String(data: data, encoding: .utf8) {
+                fgColor = str
+            } else {
+                fgColor = "\"#D4D4D4\""
+            }
+            callJS("applyGhosttyConfig(\(fontSize), \(fontFamily), \(bgColor), \(fgColor))")
         }
 
         private func callJS(_ script: String) {
