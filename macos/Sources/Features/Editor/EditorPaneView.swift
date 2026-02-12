@@ -10,6 +10,7 @@ struct EditorPaneView: View {
 
     @State private var isHovering: Bool = false
     @State private var saveStatus: SaveStatus = .idle
+    @State private var gitBranch: String? = nil
 
     enum SaveStatus: Equatable {
         case idle
@@ -23,6 +24,23 @@ struct EditorPaneView: View {
                 // Thin header bar
                 HStack(spacing: 4) {
                     breadcrumb(for: fileInfo)
+
+                    if let branch = gitBranch {
+                        HStack(spacing: 3) {
+                            Image(systemName: "arrow.triangle.branch")
+                                .font(.system(size: 9))
+                            Text(branch)
+                                .font(.system(size: 11))
+                                .lineLimit(1)
+                        }
+                        .foregroundColor(Color(nsColor: .tertiaryLabelColor))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(Color.primary.opacity(0.06))
+                        )
+                    }
 
                     Spacer()
 
@@ -84,6 +102,7 @@ struct EditorPaneView: View {
                     } : nil
                 )
             }
+            .onAppear { fetchGitBranch() }
         }
     }
 
@@ -144,5 +163,33 @@ struct EditorPaneView: View {
     /// Silent auto-save: writes to disk without UI feedback.
     private func autoSaveFile(content: String, to url: URL) {
         try? content.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    /// Fetches the current git branch name for the root directory.
+    private func fetchGitBranch() {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+            process.arguments = ["rev-parse", "--abbrev-ref", "HEAD"]
+            process.currentDirectoryURL = editorState.rootDirectory
+
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = Pipe()
+
+            guard (try? process.run()) != nil else { return }
+            process.waitUntilExit()
+
+            guard process.terminationStatus == 0 else { return }
+
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            if let branch = String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !branch.isEmpty {
+                DispatchQueue.main.async {
+                    self.gitBranch = branch
+                }
+            }
+        }
     }
 }

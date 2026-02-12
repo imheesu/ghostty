@@ -15,9 +15,11 @@ class EditorWKWebView: WKWebView {
         if event.type == .keyDown {
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
 
-            // Cmd+P: Quick Open — return false so the menu bar handles it.
+            // Cmd+P: Quick Open — toggle directly because SurfaceView may not
+            // be in the responder chain when the editor is active.
             if flags == .command, event.charactersIgnoringModifiers == "p" {
-                return false
+                surfaceView?.quickOpenVisible.toggle()
+                return true
             }
 
             // Cmd+B: Close editor and return to terminal.

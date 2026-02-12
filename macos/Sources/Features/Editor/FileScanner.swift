@@ -1,19 +1,19 @@
 import Foundation
 
 /// Asynchronously scans a directory tree and returns all file paths relative to the root.
-/// Uses FileManager.enumerator for efficient recursive traversal.
+/// Prefers `git ls-files` for speed and .gitignore support, with a FileManager fallback.
 enum FileScanner {
     /// Maximum number of files to index.
     private static let maxFiles = 50_000
 
-    /// Directories to skip when scanning (matches FileTreeItem.ignoredDirectoryNames).
+    /// Directories to skip when scanning (fallback only).
     private static let ignoredDirectoryNames: Set<String> = [
-        "node_modules", ".git", ".svn", ".hg",
-        "dist", "build", ".build", "target",
-        "venv", ".venv", "__pycache__", ".tox",
-        "vendor", "Pods", ".pods",
-        "DerivedData", ".xcodeproj", ".xcworkspace",
-        "zig-cache", "zig-out",
+        ".git",
+    ]
+
+    /// File names to exclude from search results (fallback only).
+    private static let ignoredFileNames: Set<String> = [
+        ".DS_Store",
     ]
 
     /// Scans the directory at `root` and returns relative file paths.
@@ -21,18 +21,54 @@ enum FileScanner {
     static func scan(root: URL) async -> [String] {
         await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
-                let paths = scanSync(root: root)
+                let paths = scanWithGit(root: root) ?? scanSync(root: root)
                 continuation.resume(returning: paths)
             }
         }
     }
 
+    /// Fast path: use `git ls-files` to list files respecting .gitignore.
+    /// Returns nil if the directory is not a git repository.
+    private static func scanWithGit(root: URL) -> [String]? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = ["ls-files", "--cached", "--others", "--exclude-standard"]
+        process.currentDirectoryURL = root
+
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0 else { return nil }
+        guard let output = String(data: data, encoding: .utf8) else { return nil }
+
+        var paths: [String] = []
+        paths.reserveCapacity(1024)
+
+        for line in output.split(separator: "\n", omittingEmptySubsequences: true) {
+            if paths.count >= maxFiles { break }
+            paths.append(String(line))
+        }
+
+        return paths
+    }
+
+    /// Fallback: scan using FileManager when not in a git repository.
     private static func scanSync(root: URL) -> [String] {
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(
             at: root,
-            includingPropertiesForKeys: [.isDirectoryKey, .isHiddenKey],
-            options: [.skipsHiddenFiles]
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: []
         ) else {
             return []
         }
@@ -58,6 +94,9 @@ enum FileScanner {
                 }
                 continue
             }
+
+            // Skip ignored file names.
+            if ignoredFileNames.contains(name) { continue }
 
             // Build relative path.
             let fullPath = url.standardizedFileURL.path

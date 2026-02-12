@@ -182,12 +182,21 @@ extension Ghostty {
                     filePickerSplit = 0.7
                 })
             case .editing:
-                EditorPaneView(
-                    editorState: editorState,
-                    surfaceView: surfaceView,
-                    editorConfig: EditorConfig(from: ghostty.config),
-                    onClose: { surfaceView.editorState = nil }
-                )
+                ZStack {
+                    EditorPaneView(
+                        editorState: editorState,
+                        surfaceView: surfaceView,
+                        editorConfig: EditorConfig(from: ghostty.config),
+                        onClose: { surfaceView.editorState = nil }
+                    )
+
+                    #if canImport(AppKit)
+                    // Grab handle overlay for drag-and-drop between panes.
+                    // Mirrors the SurfaceWrapper pattern so editor panes
+                    // participate in split drag/drop like terminal panes.
+                    Ghostty.SurfaceGrabHandle(surfaceView: surfaceView)
+                    #endif
+                }
             }
         }
     }
