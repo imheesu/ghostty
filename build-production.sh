@@ -2,7 +2,7 @@
 set -e
 
 APP_NAME="Ghosttown"
-BUNDLE_NAME="Ghostty"
+BUNDLE_NAME="Ghosttown"
 BUILD_DIR="macos/build/ReleaseLocal"
 APP_PATH="${BUILD_DIR}/${BUNDLE_NAME}.app"
 INSTALL_PATH="/Applications/${BUNDLE_NAME}.app"
@@ -10,9 +10,9 @@ INSTALL_PATH="/Applications/${BUNDLE_NAME}.app"
 echo "=== ${APP_NAME} Production Build ==="
 
 # 기존 앱이 실행 중이면 종료
-if pgrep -x "Ghostty" > /dev/null 2>&1; then
+if pgrep -x "ghostty" > /dev/null 2>&1; then
     echo ">> 실행 중인 ${APP_NAME} 종료..."
-    killall "Ghostty" 2>/dev/null || true
+    killall "ghostty" 2>/dev/null || true
     sleep 1
 fi
 

@@ -23,15 +23,15 @@
     }
 
     .bn-editor {
-      font-size: 13px;
+      font-size: 14px;
       line-height: 1.5;
       -webkit-font-smoothing: antialiased;
     }
 
     /* Heading sizes: compact Notion-like scale */
     [data-content-type=heading]                 { --level: 1.6em !important; }
-    [data-content-type=heading][data-level="2"] { --level: 1.3em !important; }
-    [data-content-type=heading][data-level="3"] { --level: 1.1em !important; }
+    [data-content-type=heading][data-level="2"] { --level: 1.45em !important; }
+    [data-content-type=heading][data-level="3"] { --level: 1.25em !important; }
     [data-content-type=heading][data-level="4"] { --level: 1em !important; }
     [data-content-type=heading][data-level="5"] { --level: 0.95em !important; }
     [data-content-type=heading][data-level="6"] { --level: 0.875em !important; }
@@ -188,6 +188,11 @@
       var container = document.querySelector('.bn-container');
       if (container) {
         container.setAttribute('data-color-scheme', isLight ? 'light' : 'dark');
+      }
+
+      // Apply font size from Ghostty config
+      if (fontSize) {
+        document.querySelector('.bn-editor').style.fontSize = fontSize + 'px';
       }
 
       // Store theme for React re-render

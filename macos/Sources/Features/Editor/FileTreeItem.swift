@@ -14,14 +14,9 @@ class FileTreeItem: Identifiable, ObservableObject {
     /// Whether this directory node is expanded in the UI.
     @Published var isExpanded: Bool = false
 
-    /// Directories to skip when scanning (large or irrelevant for editing).
+    /// Directories to skip when scanning.
     private static let ignoredDirectoryNames: Set<String> = [
-        "node_modules", ".git", ".svn", ".hg",
-        "dist", "build", ".build", "target",
-        "venv", ".venv", "__pycache__", ".tox",
-        "vendor", "Pods", ".pods",
-        "DerivedData", ".xcodeproj", ".xcworkspace",
-        "zig-cache", "zig-out",
+        ".git",
     ]
 
     init(url: URL) {

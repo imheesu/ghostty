@@ -8,7 +8,7 @@ Ghostty is a cross-platform terminal emulator written in Zig with platform-nativ
 
 ## Custom Fork Notes
 
-This is a custom fork where the app has been renamed from **Ghostty** to **Ghosttown**. The display name is configured in `macos/Ghostty.xcodeproj/project.pbxproj` via `INFOPLIST_KEY_CFBundleDisplayName` and `INFOPLIST_KEY_CFBundleName`. UI-facing references (MainMenu.xib, AboutView, TerminalView, CommandPalette, ErrorView, UpdatePopoverView, IntentPermission) have also been updated.
+This is a custom fork where the app has been renamed from **Ghostty** to **Ghosttown**. The display name is configured in `macos/Ghosttown.xcodeproj/project.pbxproj` via `INFOPLIST_KEY_CFBundleDisplayName` and `INFOPLIST_KEY_CFBundleName`. UI-facing references (MainMenu.xib, AboutView, TerminalView, CommandPalette, ErrorView, UpdatePopoverView, IntentPermission) have also been updated.
 
 ## Custom Feature: In-Pane Editor
 
@@ -114,8 +114,8 @@ When working on libghostty-vt, do not build the full app. For C-only changes, sk
 | `zig build run -Doptimize=ReleaseFast` | 릴리즈 빌드 후 바로 실행 |
 
 - `-Doptimize=ReleaseFast`는 Xcode configuration `ReleaseLocal`로 매핑됨
-- 빌드된 앱 번들 위치: `macos/build/ReleaseLocal/Ghostty.app` (Dock 표시 이름은 Ghosttown)
-- `/Applications/`에 설치: `cp -R macos/build/ReleaseLocal/Ghostty.app /Applications/`
+- 빌드된 앱 번들 위치: `macos/build/ReleaseLocal/Ghosttown.app`
+- `/Applications/`에 설치: `cp -R macos/build/ReleaseLocal/Ghosttown.app /Applications/`
 - 원스텝 빌드+설치 스크립트: `./build-production.sh` (--open 플래그로 설치 후 바로 실행)
 
 ### Formatting & Linting
