@@ -392,6 +392,35 @@ extension Ghostty {
             return v
         }
 
+        var fontSize: Float {
+            guard let config = self.config else { return 13.0 }
+            var v: Float = 13.0
+            let key = "font-size"
+            _ = ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
+            return v
+        }
+
+        var fontFamily: String? {
+            guard let config = self.config else { return nil }
+            var v: UnsafePointer<Int8>? = nil
+            let key = "font-family"
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return nil }
+            guard let ptr = v else { return nil }
+            return String(cString: ptr)
+        }
+
+        var foregroundColor: Color {
+            guard let config = self.config else { return .white }
+            var color: ghostty_config_color_s = .init()
+            let key = "foreground"
+            guard ghostty_config_get(config, &color, key, UInt(key.lengthOfBytes(using: .utf8))) else { return .white }
+            return .init(
+                red: Double(color.r) / 255,
+                green: Double(color.g) / 255,
+                blue: Double(color.b) / 255
+            )
+        }
+
         var backgroundColor: Color {
             var color: ghostty_config_color_s = .init();
             let bg_key = "background"

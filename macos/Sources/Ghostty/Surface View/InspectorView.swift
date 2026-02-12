@@ -45,6 +45,28 @@ extension Ghostty {
                         ghostty.splitEqualize(surface: surface)
                     })
                 }
+
+                // Quick Open overlay (per-pane, like Command Palette)
+                if surfaceView.quickOpenVisible, let pwd = surfaceView.pwd {
+                    GeometryReader { geometry in
+                        VStack {
+                            Spacer().frame(height: geometry.size.height * 0.05)
+
+                            QuickOpenView(
+                                isPresented: $surfaceView.quickOpenVisible,
+                                rootDirectory: URL(fileURLWithPath: pwd),
+                                recentFiles: surfaceView.recentFiles,
+                                onFileSelected: { url in
+                                    openFileInEditor(url: url)
+                                }
+                            )
+                            .zIndex(1)
+
+                            Spacer()
+                        }
+                        .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
+                    }
+                }
             }
             .onReceive(pubInspector) { onControlInspector($0) }
             .onChange(of: surfaceView.inspectorVisible) { inspectorVisible in
@@ -63,6 +85,11 @@ extension Ghostty {
             .onChange(of: surfaceView.editorState == nil) { isNil in
                 if isNil {
                     // Editor was closed entirely, restore focus to terminal
+                    Ghostty.moveFocus(to: surfaceView)
+                }
+            }
+            .onChange(of: surfaceView.quickOpenVisible) { visible in
+                if !visible {
                     Ghostty.moveFocus(to: surfaceView)
                 }
             }
@@ -85,6 +112,46 @@ extension Ghostty {
 
             default:
                 return
+            }
+        }
+
+        /// Opens a file in the editor, reusing the FilePickerView.handleFileSelected logic.
+        private func openFileInEditor(url: URL) {
+            // Check file size (10 MB max).
+            let maxFileSize: UInt64 = 10 * 1024 * 1024
+            do {
+                let attrs = try FileManager.default.attributesOfItem(atPath: url.path)
+                if let fileSize = attrs[.size] as? UInt64, fileSize > maxFileSize {
+                    return
+                }
+            } catch {
+                return
+            }
+
+            // Read on background thread.
+            DispatchQueue.global(qos: .userInitiated).async {
+                guard let data = try? Data(contentsOf: url),
+                      let content = String(data: data, encoding: .utf8) else { return }
+
+                DispatchQueue.main.async {
+                    let fileInfo = EditorState.FileInfo(url: url, content: content)
+                    // Create or reuse editor state.
+                    if let existing = surfaceView.editorState {
+                        existing.mode = .editing(fileInfo)
+                    } else if let pwd = surfaceView.pwd {
+                        let state = EditorState(rootDirectory: URL(fileURLWithPath: pwd))
+                        state.mode = .editing(fileInfo)
+                        surfaceView.editorState = state
+                    }
+
+                    // Record in recent files
+                    if let pwd = surfaceView.pwd {
+                        let rootPath = pwd.hasSuffix("/") ? pwd : pwd + "/"
+                        if url.path.hasPrefix(rootPath) {
+                            surfaceView.addRecentFile(String(url.path.dropFirst(rootPath.count)))
+                        }
+                    }
+                }
             }
         }
     }
@@ -118,6 +185,7 @@ extension Ghostty {
                 EditorPaneView(
                     editorState: editorState,
                     surfaceView: surfaceView,
+                    editorConfig: EditorConfig(from: ghostty.config),
                     onClose: { surfaceView.editorState = nil }
                 )
             }

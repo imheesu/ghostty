@@ -108,6 +108,20 @@ extension Ghostty {
         // The current editor state. When non-nil, the editor UI is shown.
         @Published var editorState: EditorState? = nil
 
+        // Whether the Quick Open overlay is visible.
+        @Published var quickOpenVisible: Bool = false
+
+        /// Recently opened file paths (relative to pwd), most recent first.
+        @Published var recentFiles: [String] = []
+
+        func addRecentFile(_ relativePath: String) {
+            recentFiles.removeAll { $0 == relativePath }
+            recentFiles.insert(relativePath, at: 0)
+            if recentFiles.count > 20 {
+                recentFiles = Array(recentFiles.prefix(20))
+            }
+        }
+
         // The time this surface last became focused. This is a ContinuousClock.Instant
         // on supported platforms.
         @Published var focusInstant: ContinuousClock.Instant? = nil
@@ -1630,6 +1644,11 @@ extension Ghostty {
             } else if let pwd = self.pwd {
                 editorState = EditorState(rootDirectory: URL(fileURLWithPath: pwd))
             }
+        }
+
+        @IBAction func quickOpen(_ sender: Any?) {
+            guard self.pwd != nil else { return }
+            quickOpenVisible.toggle()
         }
 
         @IBAction func closeEditor(_ sender: Any?) {

@@ -5,6 +5,7 @@ import SwiftUI
 struct EditorPaneView: View {
     @ObservedObject var editorState: EditorState
     let surfaceView: Ghostty.SurfaceView
+    let editorConfig: EditorConfig
     let onClose: () -> Void
 
     @State private var isHovering: Bool = false
@@ -63,14 +64,13 @@ struct EditorPaneView: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .background(Color(nsColor: .windowBackgroundColor))
-
-                Divider()
+                .background(.ultraThinMaterial)
 
                 // Editor
                 EditorWebView(
                     fileInfo: fileInfo,
                     surfaceView: surfaceView,
+                    editorConfig: editorConfig,
                     onSave: { content in saveFile(content: content, to: fileInfo.url) },
                     onAutoSave: { content in autoSaveFile(content: content, to: fileInfo.url) },
                     onClose: onClose,

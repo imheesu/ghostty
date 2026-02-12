@@ -5725,6 +5725,13 @@ pub const RepeatableString = struct {
         return .{ .list = list };
     }
 
+    /// Returns the first string as a C string pointer for the C API.
+    /// Used by the generic c_get handler to expose RepeatableString values.
+    pub fn cval(self: Self) ?[*:0]const u8 {
+        if (self.list.items.len == 0) return null;
+        return @ptrCast(self.list.items[0].ptr);
+    }
+
     /// The number of items in the list
     pub fn count(self: Self) usize {
         return self.list.items.len;
