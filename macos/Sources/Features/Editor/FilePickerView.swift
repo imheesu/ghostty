@@ -29,8 +29,8 @@ struct FilePickerView: View {
                 .buttonStyle(.plain)
                 .help("Close file explorer")
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
 
             Divider()
 
@@ -139,12 +139,14 @@ struct FileTreeRow: View {
             } label: {
                 Label {
                     Text(item.name)
+                        .font(.system(size: 12))
                         .lineLimit(1)
                         .truncationMode(.tail)
                 } icon: {
                     fileIcon(for: item.url)
                 }
             }
+            .listRowInsets(EdgeInsets(top: 1, leading: 0, bottom: 1, trailing: 0))
             .onChange(of: item.isExpanded) { expanded in
                 if expanded, let children = item.children, children.isEmpty {
                     item.loadChildren()
@@ -154,6 +156,7 @@ struct FileTreeRow: View {
             Button(action: { onFileSelected(item.url) }) {
                 Label {
                     Text(item.name)
+                        .font(.system(size: 12))
                         .lineLimit(1)
                         .truncationMode(.tail)
                 } icon: {
@@ -161,12 +164,13 @@ struct FileTreeRow: View {
                 }
             }
             .buttonStyle(.plain)
+            .listRowInsets(EdgeInsets(top: 1, leading: 0, bottom: 1, trailing: 0))
         }
     }
 
     private func fileIcon(for url: URL) -> some View {
         Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
             .resizable()
-            .frame(width: 16, height: 16)
+            .frame(width: 15, height: 15)
     }
 }

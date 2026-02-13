@@ -90,7 +90,6 @@ struct EditorPaneView: View {
                     surfaceView: surfaceView,
                     editorConfig: editorConfig,
                     onSave: { content in saveFile(content: content, to: fileInfo.url) },
-                    onAutoSave: { content in autoSaveFile(content: content, to: fileInfo.url) },
                     onClose: onClose,
                     onSwitchMode: fileInfo.isMarkdown ? { content in
                         // Toggle between BlockNote ↔ Monaco, preserving content
@@ -102,7 +101,13 @@ struct EditorPaneView: View {
                     } : nil
                 )
             }
-            .onAppear { fetchGitBranch() }
+            .onAppear {
+                fetchGitBranch()
+                editorState.startWatching()
+            }
+            .onDisappear {
+                editorState.stopWatching()
+            }
         }
     }
 
@@ -146,6 +151,7 @@ struct EditorPaneView: View {
     }
 
     private func saveFile(content: String, to url: URL) {
+        editorState.suppressFileWatcherEvent()
         do {
             try content.write(to: url, atomically: true, encoding: .utf8)
             saveStatus = .saved
@@ -158,11 +164,6 @@ struct EditorPaneView: View {
         } catch {
             saveStatus = .failed(error.localizedDescription)
         }
-    }
-
-    /// Silent auto-save: writes to disk without UI feedback.
-    private func autoSaveFile(content: String, to url: URL) {
-        try? content.write(to: url, atomically: true, encoding: .utf8)
     }
 
     /// Fetches the current git branch name for the root directory.

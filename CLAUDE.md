@@ -20,7 +20,7 @@ This is a custom fork where the app has been renamed from **Ghostty** to **Ghost
 |------|------|
 | `EditorPaneView.swift` | 에디터 메인 UI (헤더 바 + 웹뷰 컨테이너). 저장 상태 표시, 닫기 버튼 |
 | `EditorState.swift` | 상태 관리 (`filePicker` ↔ `editing`). `FileInfo` 구조체, `MarkdownViewMode` enum |
-| `EditorWebView.swift` | WKWebView 기반 JS↔Swift 브릿지. 메시지 핸들러: `save`, `autoSave`, `switchMode`, `close`, `ready` |
+| `EditorWebView.swift` | WKWebView 기반 JS↔Swift 브릿지. 메시지 핸들러: `save`, `switchMode`, `close`, `ready` |
 | `EditorWKWebView.swift` | WKWebView 서브클래스. Cmd+B(닫기), Cmd+P(퀵오픈) 키 인터셉트 |
 | `Resources/editor.html` | **Monaco** 코드 에디터 (CDN `0.52.2`). 범용 코드 편집 |
 | `Resources/blocknote.html` | **BlockNote** 마크다운 에디터 (로컬 번들). Notion 스타일 블록 편집 |
@@ -46,7 +46,7 @@ SurfaceView (editorState: EditorState?)
 **JS↔Swift 브릿지 흐름:**
 1. Swift가 HTML 로드 → JS에서 `ready` 메시지 전송
 2. Swift가 `initEditor()`, `setContent()`/`setMarkdown()`, `applyGhosttyConfig()` 호출
-3. 사용자 편집 → `autoSave` (1초 디바운스) 또는 `save` (Cmd+S) 메시지로 Swift에 전달
+3. 사용자 편집 → `save` (Cmd+S) 메시지로 Swift에 전달
 
 ### 키보드 단축키
 
@@ -54,7 +54,7 @@ SurfaceView (editorState: EditorState?)
 |--------|------|----------|
 | `Cmd+S` | 저장 (UI 피드백 포함) | 양쪽 에디터 |
 | `Cmd+E` | BlockNote ↔ Monaco 전환 | 마크다운 파일만 |
-| `Cmd+B` | 에디터 닫고 터미널 복귀 | EditorWKWebView |
+| `Ctrl+C` | 에디터 닫고 터미널 복귀 | EditorWKWebView |
 | `Cmd+P` | 퀵오픈 (파일 검색) | EditorWKWebView |
 
 ### 알려진 이슈 및 워크어라운드

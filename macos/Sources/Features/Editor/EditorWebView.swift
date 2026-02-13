@@ -32,7 +32,6 @@ struct EditorWebView: NSViewRepresentable {
     let surfaceView: Ghostty.SurfaceView
     let editorConfig: EditorConfig
     let onSave: (String) -> Void
-    let onAutoSave: ((String) -> Void)?
     let onClose: () -> Void
     let onSwitchMode: ((String) -> Void)?
 
@@ -41,7 +40,6 @@ struct EditorWebView: NSViewRepresentable {
             fileInfo: fileInfo,
             editorConfig: editorConfig,
             onSave: onSave,
-            onAutoSave: onAutoSave,
             onClose: onClose,
             onSwitchMode: onSwitchMode
         )
@@ -56,7 +54,6 @@ struct EditorWebView: NSViewRepresentable {
         // strongly retains its message handlers.
         let handler = WeakScriptMessageHandler(delegate: context.coordinator)
         controller.add(handler, name: "save")
-        controller.add(handler, name: "autoSave")
         controller.add(handler, name: "close")
         controller.add(handler, name: "ready")
         controller.add(handler, name: "switchMode")
@@ -104,8 +101,9 @@ struct EditorWebView: NSViewRepresentable {
             return
         }
 
-        // If the file changed, update the coordinator and push new content
-        if coordinator.fileInfo.url != fileInfo.url {
+        // If the file changed (different URL or externally modified), update and push new content
+        if coordinator.fileInfo.url != fileInfo.url
+            || coordinator.fileInfo.contentVersion != fileInfo.contentVersion {
             coordinator.fileInfo = fileInfo
             if coordinator.isEditorReady {
                 coordinator.sendContentToEditor()
@@ -125,7 +123,6 @@ struct EditorWebView: NSViewRepresentable {
     static func dismantleNSView(_ webView: EditorWKWebView, coordinator: Coordinator) {
         let controller = webView.configuration.userContentController
         controller.removeScriptMessageHandler(forName: "save")
-        controller.removeScriptMessageHandler(forName: "autoSave")
         controller.removeScriptMessageHandler(forName: "close")
         controller.removeScriptMessageHandler(forName: "ready")
         controller.removeScriptMessageHandler(forName: "switchMode")
@@ -189,7 +186,6 @@ struct EditorWebView: NSViewRepresentable {
         var fileInfo: EditorState.FileInfo
         var editorConfig: EditorConfig
         let onSave: (String) -> Void
-        let onAutoSave: ((String) -> Void)?
         let onClose: () -> Void
         let onSwitchMode: ((String) -> Void)?
         weak var webView: WKWebView?
@@ -204,14 +200,12 @@ struct EditorWebView: NSViewRepresentable {
             fileInfo: EditorState.FileInfo,
             editorConfig: EditorConfig,
             onSave: @escaping (String) -> Void,
-            onAutoSave: ((String) -> Void)?,
             onClose: @escaping () -> Void,
             onSwitchMode: ((String) -> Void)?
         ) {
             self.fileInfo = fileInfo
             self.editorConfig = editorConfig
             self.onSave = onSave
-            self.onAutoSave = onAutoSave
             self.onClose = onClose
             self.onSwitchMode = onSwitchMode
         }
@@ -231,12 +225,6 @@ struct EditorWebView: NSViewRepresentable {
                 if let body = message.body as? [String: Any],
                    let content = body["content"] as? String {
                     onSave(content)
-                }
-
-            case "autoSave":
-                if let body = message.body as? [String: Any],
-                   let content = body["content"] as? String {
-                    onAutoSave?(content)
                 }
 
             case "switchMode":

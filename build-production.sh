@@ -9,13 +9,6 @@ INSTALL_PATH="/Applications/${BUNDLE_NAME}.app"
 
 echo "=== ${APP_NAME} Production Build ==="
 
-# 기존 앱이 실행 중이면 종료
-if pgrep -x "ghostty" > /dev/null 2>&1; then
-    echo ">> 실행 중인 ${APP_NAME} 종료..."
-    killall "ghostty" 2>/dev/null || true
-    sleep 1
-fi
-
 # 릴리즈 빌드
 echo ">> 빌드 시작 (ReleaseFast)..."
 zig build -Doptimize=ReleaseFast
@@ -27,10 +20,16 @@ echo ">> ${INSTALL_PATH} 에 설치..."
 rm -rf "${INSTALL_PATH}"
 cp -R "${APP_PATH}" "${INSTALL_PATH}"
 
-echo ">> 설치 완료!"
+echo ">> 설치 완료! 다음 앱 재시작 시 새 버전이 적용됩니다."
 
-# 실행 여부 확인
-if [[ "$1" == "--open" ]]; then
+# --open: 설치 후 바로 실행
+# --restart: 실행 중인 앱 종료 후 재실행
+if [[ "$1" == "--open" || "$1" == "--restart" ]]; then
+    if [[ "$1" == "--restart" ]] && pgrep -x "ghostty" > /dev/null 2>&1; then
+        echo ">> 실행 중인 ${APP_NAME} 종료..."
+        killall "ghostty" 2>/dev/null || true
+        sleep 1
+    fi
     echo ">> ${APP_NAME} 실행..."
     open "${INSTALL_PATH}"
 fi
