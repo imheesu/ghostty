@@ -22,16 +22,51 @@ class EditorWKWebView: WKWebView {
                 return true
             }
 
-            // Cmd+B: Close editor and return to terminal.
-            if flags == .command, event.charactersIgnoringModifiers == "b" {
+            // Ctrl+C: Close editor and return to terminal.
+            if flags == .control, event.charactersIgnoringModifiers == "c" {
                 surfaceView?.closeEditor(nil)
                 return true
             }
+
+            // Cmd+R: Toggle file explorer — WKWebView would consume this as
+            // "reload page" so we intercept it and call the action directly.
+            if flags == .command, event.charactersIgnoringModifiers == "r" {
+                surfaceView?.toggleFilePicker(nil)
+                return true
+            }
+
+            // Cmd+Number (1-9): Let the event propagate up the responder chain
+            // for macOS native tab switching.
+            if flags == .command,
+               let chars = event.charactersIgnoringModifiers,
+               chars.count == 1,
+               let scalar = chars.unicodeScalars.first,
+               scalar >= "1" && scalar <= "9" {
+                return false
+            }
+
         }
 
-        // Let WKWebView handle standard editing shortcuts (Cmd+C/V/X/A/Z etc.) first.
+        // Let WKWebView handle the event first — this forwards it to the web
+        // content process, triggering DOM events (copy, paste, selectAll, etc.)
+        // that BlockNote's contenteditable relies on.
         if super.performKeyEquivalent(with: event) {
             return true
+        }
+
+        // Standard editing shortcuts (Cmd+C/V/X/A/Z, Cmd+Shift+Z):
+        // If super didn't handle them, return false so the system Edit menu
+        // can dispatch them via the responder chain. Do NOT fall through to
+        // Ghostty keybinding check — otherwise cmd+c would copy from the
+        // terminal surface instead of the editor.
+        if event.type == .keyDown {
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            if flags == .command || flags == [.command, .shift] {
+                if let chars = event.charactersIgnoringModifiers,
+                   ["c", "v", "x", "a", "z"].contains(chars) {
+                    return false
+                }
+            }
         }
 
         // Only process key-down events.

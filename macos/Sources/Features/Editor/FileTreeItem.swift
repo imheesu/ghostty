@@ -17,6 +17,12 @@ class FileTreeItem: Identifiable, ObservableObject {
     /// Directories to skip when scanning.
     private static let ignoredDirectoryNames: Set<String> = [
         ".git",
+        "node_modules",
+    ]
+
+    /// File names to skip when scanning.
+    private static let ignoredFileNames: Set<String> = [
+        ".DS_Store",
     ]
 
     init(url: URL) {
@@ -31,22 +37,27 @@ class FileTreeItem: Identifiable, ObservableObject {
 
     /// Loads direct children of this directory from the file system.
     /// Sorts directories first, then alphabetically by name.
-    /// Filters out hidden files and common large directories.
-    func loadChildren(showHidden: Bool = false) {
+    /// Shows hidden files (dotfiles) but filters out .git, node_modules, .DS_Store, etc.
+    func loadChildren() {
         guard isDirectory else { return }
 
         let fm = FileManager.default
         guard let urls = try? fm.contentsOfDirectory(
             at: url,
             includingPropertiesForKeys: [.isDirectoryKey],
-            options: showHidden ? [] : [.skipsHiddenFiles]
+            options: []
         ) else {
             children = []
             return
         }
 
         children = urls
-            .filter { !Self.ignoredDirectoryNames.contains($0.lastPathComponent) }
+            .filter {
+                let name = $0.lastPathComponent
+                if Self.ignoredFileNames.contains(name) { return false }
+                if Self.ignoredDirectoryNames.contains(name) { return false }
+                return true
+            }
             .map { FileTreeItem(url: $0) }
             .sorted { lhs, rhs in
                 if lhs.isDirectory != rhs.isDirectory {

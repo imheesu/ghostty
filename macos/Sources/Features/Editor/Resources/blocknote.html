@@ -6,7 +6,8 @@
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; }
-    #root { width: 100%; height: 100%; overflow-y: auto; }
+    #editor-container { width: 100%; height: 100%; overflow-y: auto; }
+    #root { width: 100%; }
     #loading-indicator {
       position: absolute;
       top: 50%;
@@ -36,10 +37,11 @@
     [data-content-type=heading][data-level="5"] { --level: 0.95em !important; }
     [data-content-type=heading][data-level="6"] { --level: 0.875em !important; }
 
-    /* Tighter heading line-height */
+    /* Tighter heading line-height + top padding for visual separation */
     .bn-block-content[data-content-type=heading] {
       line-height: 1.3;
       letter-spacing: -0.01em;
+      padding-top: 0.6em;
     }
 
     /* Side menu heights to match smaller headings */
@@ -67,10 +69,94 @@
     body.ghostty-themed .bn-drag-handle-menu {
       color: var(--ghostty-dim) !important;
     }
+
+    /* ── Obsidian-style frontmatter properties panel ── */
+    #frontmatter-panel {
+      display: none;
+      margin: 8px 54px 0;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: rgba(128, 128, 128, 0.06);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, sans-serif;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    #frontmatter-panel.visible { display: block; }
+
+    .fm-header {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding-bottom: 4px;
+      cursor: pointer;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .fm-header-label {
+      font-size: 12px;
+      font-weight: 600;
+      opacity: 0.5;
+    }
+    .fm-chevron {
+      font-size: 10px;
+      opacity: 0.4;
+      transition: transform 0.15s ease;
+    }
+    .fm-header:hover .fm-header-label,
+    .fm-header:hover .fm-chevron { opacity: 0.8; }
+    .fm-collapsed .fm-chevron { transform: rotate(-90deg); }
+    .fm-collapsed .fm-body { display: none; }
+
+    .fm-body { padding-top: 2px; }
+
+    .fm-row {
+      display: flex;
+      align-items: baseline;
+      padding: 2px 0;
+      gap: 12px;
+    }
+    .fm-row + .fm-row {
+      border-top: 1px solid rgba(128, 128, 128, 0.08);
+    }
+
+    .fm-key {
+      min-width: 80px;
+      flex-shrink: 0;
+      font-size: 13px;
+      opacity: 0.45;
+      font-weight: 500;
+    }
+    .fm-value {
+      font-size: 13px;
+      opacity: 0.8;
+      word-break: break-word;
+    }
+
+    /* Tag pills (for tags/categories arrays) */
+    .fm-tag {
+      display: inline-block;
+      padding: 1px 8px;
+      margin: 1px 4px 1px 0;
+      border-radius: 4px;
+      background: rgba(128, 128, 128, 0.1);
+      font-size: 12px;
+    }
+
+    /* Ghostty theme overrides for frontmatter panel */
+    body.ghostty-themed #frontmatter-panel {
+      background: var(--ghostty-hover-bg);
+      color: var(--ghostty-fg);
+    }
+    body.ghostty-themed .fm-tag {
+      background: rgba(128, 128, 128, 0.15);
+    }
   </style>
 </head>
 <body>
-  <div id="root"></div>
+  <div id="editor-container">
+    <div id="frontmatter-panel"></div>
+    <div id="root"></div>
+  </div>
   <div id="loading-indicator">Loading BlockNote...</div>
 
   <!-- Local bundle: React + BlockNote (no CDN dependency) -->
@@ -93,25 +179,136 @@
 
     var editorInstance = null;
     var pendingMarkdown = null;
-    var autoSaveTimer = null;
-    var skipAutoSave = false;
+    var storedFrontmatter = null;
+    var originalBodyMarkdown = null;
+
+    // Strip YAML frontmatter before passing to BlockNote, store it for later.
+    // Frontmatter must start at the very first character of the file.
+    function extractFrontmatter(md) {
+      var match = md.match(/^---[ \t]*\n([\s\S]*?)\n---[ \t]*(\n|$)/);
+      if (match) {
+        storedFrontmatter = match[0];
+        renderFrontmatterPanel(match[1]);
+        return md.slice(match[0].length);
+      }
+      storedFrontmatter = null;
+      renderFrontmatterPanel(null);
+      return md;
+    }
+
+    // Re-attach stored frontmatter to markdown output
+    function prependFrontmatter(md) {
+      if (!storedFrontmatter) return md;
+      var sep = md.startsWith('\n') ? '' : '\n';
+      return storedFrontmatter + sep + md;
+    }
+
+    // ── Frontmatter panel rendering ──
+
+    // Tags-like keys that should render as pills
+    var tagKeys = ['tags', 'tag', 'categories', 'category', 'keywords', 'aliases'];
+
+    // Parse simple YAML into [{key, value}] — handles scalars, inline arrays, list arrays
+    function parseSimpleYaml(yaml) {
+      var result = [];
+      var lines = yaml.split('\n');
+      var i = 0;
+      while (i < lines.length) {
+        var line = lines[i];
+        var m = line.match(/^([\w][\w\s-]*?):\s*(.*)/);
+        if (m) {
+          var key = m[1].trim();
+          var val = m[2].trim();
+          // Inline array: key: [a, b, c]
+          if (val.startsWith('[') && val.endsWith(']')) {
+            val = val.slice(1, -1).split(',').map(function(s) { return s.trim(); });
+          }
+          // Multi-line list array
+          else if (val === '') {
+            var items = [];
+            while (i + 1 < lines.length && /^\s+-\s+/.test(lines[i + 1])) {
+              i++;
+              items.push(lines[i].replace(/^\s+-\s+/, '').trim());
+            }
+            if (items.length > 0) val = items;
+          }
+          result.push({ key: key, value: val });
+        }
+        i++;
+      }
+      return result;
+    }
+
+    function renderFrontmatterPanel(yamlContent) {
+      var panel = document.getElementById('frontmatter-panel');
+      if (!yamlContent) {
+        panel.classList.remove('visible');
+        panel.innerHTML = '';
+        return;
+      }
+
+      var props = parseSimpleYaml(yamlContent);
+      if (props.length === 0) {
+        panel.classList.remove('visible');
+        panel.innerHTML = '';
+        return;
+      }
+
+      var html = '<div class="fm-header" onclick="this.parentElement.classList.toggle(\'fm-collapsed\')">';
+      html += '<span class="fm-chevron">&#9662;</span>';
+      html += '<span class="fm-header-label">Properties</span>';
+      html += '</div>';
+      html += '<div class="fm-body">';
+
+      for (var i = 0; i < props.length; i++) {
+        var p = props[i];
+        var isTag = tagKeys.indexOf(p.key.toLowerCase()) !== -1;
+        html += '<div class="fm-row">';
+        html += '<span class="fm-key">' + escapeHtml(p.key) + '</span>';
+
+        if (Array.isArray(p.value) && isTag) {
+          html += '<span class="fm-value">';
+          for (var j = 0; j < p.value.length; j++) {
+            html += '<span class="fm-tag">' + escapeHtml(p.value[j]) + '</span>';
+          }
+          html += '</span>';
+        } else if (Array.isArray(p.value)) {
+          html += '<span class="fm-value">' + escapeHtml(p.value.join(', ')) + '</span>';
+        } else {
+          html += '<span class="fm-value">' + escapeHtml(String(p.value)) + '</span>';
+        }
+
+        html += '</div>';
+      }
+
+      html += '</div>';
+      panel.innerHTML = html;
+      panel.classList.add('visible');
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
 
     // JS Bridge: called from Swift to set markdown content
     window.setMarkdown = async function(text) {
+      var body = extractFrontmatter(text);
+      originalBodyMarkdown = body;
       if (editorInstance) {
-        skipAutoSave = true;
-        var blocks = await editorInstance.tryParseMarkdownToBlocks(text);
+        var blocks = await editorInstance.tryParseMarkdownToBlocks(body);
         editorInstance.replaceBlocks(editorInstance.document, blocks);
-        setTimeout(function() { skipAutoSave = false; }, 200);
       } else {
-        pendingMarkdown = text;
+        pendingMarkdown = body;
       }
     };
 
     // JS Bridge: called from Swift to get current content as markdown
     window.getMarkdown = async function() {
       if (editorInstance) {
-        return normalizeMarkdown(await editorInstance.blocksToMarkdownLossy(editorInstance.document));
+        var bnOutput = normalizeMarkdown(await editorInstance.blocksToMarkdownLossy(editorInstance.document));
+        var merged = mergeWithOriginal(originalBodyMarkdown, bnOutput);
+        originalBodyMarkdown = merged;
+        return prependFrontmatter(merged);
       }
       return '';
     };
@@ -141,6 +338,144 @@
         }
       }
       return lines.join('\n');
+    }
+
+    // ── Original-preserving merge (diff-based round-trip fidelity) ──
+
+    // Split markdown into logical blocks (separated by blank lines).
+    // Respects fenced code blocks so internal blank lines don't cause splits.
+    // Returns { blocks: [string], gaps: [string], trailing: string }
+    //   gaps[i] = exact separator text between blocks[i] and blocks[i+1]
+    //   trailing = text after the last block (preserves trailing newlines)
+    function splitMarkdownBlocks(md) {
+      if (!md) return { blocks: [], gaps: [], trailing: '' };
+      var lines = md.split('\n');
+      var blocks = [];
+      var current = [];
+      var inCodeBlock = false;
+      for (var i = 0; i < lines.length; i++) {
+        if (/^(`{3,}|~{3,})/.test(lines[i].trimStart())) {
+          inCodeBlock = !inCodeBlock;
+          current.push(lines[i]);
+          continue;
+        }
+        if (!inCodeBlock && lines[i].trim() === '') {
+          if (current.length > 0) {
+            blocks.push(current.join('\n'));
+            current = [];
+          }
+        } else {
+          current.push(lines[i]);
+        }
+      }
+      if (current.length > 0) {
+        blocks.push(current.join('\n'));
+      }
+      // Extract exact gaps by locating each block's position in source text
+      var gaps = [];
+      var trailing = '';
+      if (blocks.length > 0) {
+        var searchFrom = 0;
+        var prevEnd = 0;
+        for (var i = 0; i < blocks.length; i++) {
+          var pos = md.indexOf(blocks[i], searchFrom);
+          if (i > 0) gaps.push(md.substring(prevEnd, pos));
+          prevEnd = pos + blocks[i].length;
+          searchFrom = prevEnd;
+        }
+        trailing = md.substring(prevEnd);
+      }
+      return { blocks: blocks, gaps: gaps, trailing: trailing };
+    }
+
+    // Extract plain-text fingerprint from a markdown block (strip all formatting).
+    function textFingerprint(block) {
+      var t = block;
+      t = t.replace(/^(`{3,}|~{3,}).*$/gm, '');          // code fence markers
+      t = t.replace(/^>\s*/gm, '');                         // blockquote markers
+      t = t.replace(/^#{1,6}\s+/gm, '');                    // heading markers
+      t = t.replace(/^(\s*)([-*+]|\d+\.)\s+/gm, '$1');      // list markers
+      t = t.replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1');        // images
+      t = t.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');         // links
+      t = t.replace(/(\*{1,3}|_{1,3}|~~)(.*?)\1/g, '$2');   // bold/italic/strike
+      t = t.replace(/`([^`]*)`/g, '$1');                     // inline code
+      t = t.replace(/\s+/g, ' ').trim();
+      return t.toLowerCase();
+    }
+
+    // Longest Common Subsequence of two fingerprint arrays.
+    // Returns array of { origIdx, bnIdx } matched pairs.
+    function computeLCS(a, b) {
+      var m = a.length, n = b.length;
+      var dp = [];
+      for (var i = 0; i <= m; i++) {
+        dp[i] = new Array(n + 1);
+        for (var j = 0; j <= n; j++) {
+          if (i === 0 || j === 0) dp[i][j] = 0;
+          else if (a[i-1] === b[j-1]) dp[i][j] = dp[i-1][j-1] + 1;
+          else dp[i][j] = Math.max(dp[i-1][j], dp[i][j-1]);
+        }
+      }
+      var matches = [];
+      var i = m, j = n;
+      while (i > 0 && j > 0) {
+        if (a[i-1] === b[j-1]) {
+          matches.unshift({ origIdx: i-1, bnIdx: j-1 });
+          i--; j--;
+        } else if (dp[i-1][j] > dp[i][j-1]) {
+          i--;
+        } else {
+          j--;
+        }
+      }
+      return matches;
+    }
+
+    // Merge BlockNote output with original markdown, preserving original text
+    // for blocks whose plain-text content hasn't changed.
+    // Also preserves original inter-block gaps when adjacent blocks are both from original.
+    function mergeWithOriginal(original, bnOutput) {
+      if (!original) return bnOutput;
+      var origResult = splitMarkdownBlocks(original);
+      var bnResult = splitMarkdownBlocks(bnOutput);
+      if (origResult.blocks.length === 0) return bnOutput;
+      if (bnResult.blocks.length === 0) return bnOutput;
+
+      var origFP = origResult.blocks.map(textFingerprint);
+      var bnFP = bnResult.blocks.map(textFingerprint);
+      var matches = computeLCS(origFP, bnFP);
+
+      var bnToOrig = {};
+      for (var k = 0; k < matches.length; k++) {
+        bnToOrig[matches[k].bnIdx] = matches[k].origIdx;
+      }
+
+      var parts = [];
+      for (var i = 0; i < bnResult.blocks.length; i++) {
+        // Insert gap before this block (except before the first)
+        if (i > 0) {
+          var prevOrig = bnToOrig.hasOwnProperty(i - 1) ? bnToOrig[i - 1] : -1;
+          var currOrig = bnToOrig.hasOwnProperty(i) ? bnToOrig[i] : -1;
+          if (prevOrig >= 0 && currOrig >= 0 && currOrig === prevOrig + 1) {
+            // Both adjacent blocks from consecutive original positions — use original gap
+            parts.push(origResult.gaps[prevOrig]);
+          } else {
+            parts.push('\n\n');
+          }
+        }
+        if (bnToOrig.hasOwnProperty(i)) {
+          parts.push(origResult.blocks[bnToOrig[i]]);
+        } else {
+          parts.push(bnResult.blocks[i]);
+        }
+      }
+
+      var merged = parts.join('');
+      // Preserve trailing whitespace from original (e.g. final newline)
+      if (origResult.trailing) {
+        merged += origResult.trailing;
+      }
+      return merged;
     }
 
     // Helper: determine if a hex color is "light" by computing relative luminance
@@ -238,16 +573,7 @@
         }
       }, [editor]);
 
-      var handleChange = React.useCallback(function() {
-        if (skipAutoSave) return;
-        if (autoSaveTimer) clearTimeout(autoSaveTimer);
-        autoSaveTimer = setTimeout(async function() {
-          var md = await window.getMarkdown();
-          postMessage('autoSave', { content: md });
-        }, 1000);
-      }, []);
-
-      return h(BlockNoteView, { editor: editor, theme: theme, onChange: handleChange });
+      return h(BlockNoteView, { editor: editor, theme: theme });
     }
 
     document.getElementById('loading-indicator').style.display = 'none';
