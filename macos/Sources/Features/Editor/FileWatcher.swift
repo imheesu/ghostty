@@ -166,8 +166,13 @@ final class FileWatcher {
                 self.cancelReconnect()
                 self.attachSource()
 
-                DispatchQueue.main.async { [weak self] in
-                    self?.onChange()
+                // Check suppress for atomic writes (delete/rename → reconnect path).
+                if self.suppressCount > 0 {
+                    self.suppressCount -= 1
+                } else {
+                    DispatchQueue.main.async { [weak self] in
+                        self?.onChange()
+                    }
                 }
             }
         }

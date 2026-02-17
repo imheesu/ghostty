@@ -220,6 +220,12 @@ struct EditorWebView: NSViewRepresentable {
                 isEditorReady = true
                 initializeEditor()
                 applyEditorConfig()
+                // Focus the WKWebView so clipboard actions route to
+                // its internal content view (the correct first responder).
+                DispatchQueue.main.async { [weak self] in
+                    guard let webView = self?.webView else { return }
+                    webView.window?.makeFirstResponder(webView)
+                }
 
             case "save":
                 if let body = message.body as? [String: Any],

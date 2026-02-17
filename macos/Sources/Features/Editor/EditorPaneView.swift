@@ -154,6 +154,13 @@ struct EditorPaneView: View {
         editorState.suppressFileWatcherEvent()
         do {
             try content.write(to: url, atomically: true, encoding: .utf8)
+            // Sync fileInfo.content so handleExternalChange() sees no diff
+            // and skips reloading (prevents cursor jump on save).
+            if case .editing(var fi) = editorState.mode {
+                fi.content = content
+                fi.isModified = false
+                editorState.mode = .editing(fi)
+            }
             saveStatus = .saved
             // Auto-dismiss success indicator after 2 seconds
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
