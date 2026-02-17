@@ -537,12 +537,12 @@
 
     // Keyboard shortcuts: Cmd+S → save, Cmd+E → switch to Monaco mode
     document.addEventListener('keydown', async function(e) {
-      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+      if ((e.metaKey || e.ctrlKey) && e.code === 'KeyS') {
         e.preventDefault();
         var md = await window.getMarkdown();
         postMessage('save', { content: md });
       }
-      if ((e.metaKey || e.ctrlKey) && e.key === 'e') {
+      if ((e.metaKey || e.ctrlKey) && e.code === 'KeyE') {
         e.preventDefault();
         var md = await window.getMarkdown();
         postMessage('switchMode', { content: md });
@@ -571,6 +571,31 @@
           window.setMarkdown(pendingMarkdown);
           pendingMarkdown = null;
         }
+        // Focus the contenteditable so clipboard shortcuts work immediately
+        try { editor.focus(); } catch(e) {}
+
+        // IME composition guard: prevent list item duplication during Korean input.
+        // ProseMirror (BlockNote's editor core) receives a spurious 'insertParagraph'
+        // beforeinput event while the Korean IME is composing a syllable inside a list
+        // item, causing the item to split prematurely. We intercept this event during
+        // active composition. Real Enter presses fire compositionend first, so they
+        // are unaffected.
+        (function setupIMEGuard() {
+          var editorEl = document.querySelector('.bn-editor');
+          if (!editorEl) return;
+          var imeActive = false;
+          editorEl.addEventListener('compositionstart', function() {
+            imeActive = true;
+          }, true);
+          editorEl.addEventListener('compositionend', function() {
+            imeActive = false;
+          }, true);
+          editorEl.addEventListener('beforeinput', function(e) {
+            if (imeActive && e.inputType === 'insertParagraph') {
+              e.preventDefault();
+            }
+          }, true);  // capture phase — runs before ProseMirror's handler
+        })();
       }, [editor]);
 
       return h(BlockNoteView, { editor: editor, theme: theme });

@@ -279,12 +279,12 @@
 
         // Intercept Cmd+S and Cmd+E at the document level as a fallback
         document.addEventListener('keydown', function(e) {
-            if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+            if ((e.metaKey || e.ctrlKey) && e.code === 'KeyS') {
                 e.preventDefault();
                 postMessage('save', { content: window.getContent() });
             }
             // Cmd+E: switch to BlockNote mode (only for markdown files)
-            if (isMarkdown && (e.metaKey || e.ctrlKey) && e.key === 'e') {
+            if (isMarkdown && (e.metaKey || e.ctrlKey) && e.code === 'KeyE') {
                 e.preventDefault();
                 postMessage('switchMode', { content: window.getContent() });
             }
