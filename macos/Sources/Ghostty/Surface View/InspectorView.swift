@@ -56,8 +56,13 @@ extension Ghostty {
                                 isPresented: $surfaceView.quickOpenVisible,
                                 rootDirectory: URL(fileURLWithPath: pwd),
                                 recentFiles: surfaceView.recentFiles,
-                                onFileSelected: { url in
-                                    openFileInEditor(url: url)
+                                onSelected: { selection in
+                                    switch selection {
+                                    case .file(let url):
+                                        openFileInEditor(url: url)
+                                    case .url(let url):
+                                        openURLInBrowser(url: url)
+                                    }
                                 }
                             )
                             .zIndex(1)
@@ -154,6 +159,17 @@ extension Ghostty {
                 }
             }
         }
+
+        /// Opens a URL in the in-pane browser.
+        private func openURLInBrowser(url: URL) {
+            if let existing = surfaceView.editorState {
+                existing.mode = .browsing(url)
+            } else if let pwd = surfaceView.pwd {
+                let state = EditorState(rootDirectory: URL(fileURLWithPath: pwd))
+                state.mode = .browsing(url)
+                surfaceView.editorState = state
+            }
+        }
     }
 
     /// Separate view that directly observes EditorState to handle nested ObservableObject updates.
@@ -194,6 +210,20 @@ extension Ghostty {
                     // Grab handle overlay for drag-and-drop between panes.
                     // Mirrors the SurfaceWrapper pattern so editor panes
                     // participate in split drag/drop like terminal panes.
+                    Ghostty.SurfaceGrabHandle(surfaceView: surfaceView)
+                    #endif
+                }
+
+            case .browsing(let url):
+                ZStack {
+                    BrowserPaneView(
+                        editorState: editorState,
+                        surfaceView: surfaceView,
+                        url: url,
+                        onClose: { surfaceView.editorState = nil }
+                    )
+
+                    #if canImport(AppKit)
                     Ghostty.SurfaceGrabHandle(surfaceView: surfaceView)
                     #endif
                 }

@@ -1,18 +1,42 @@
 import SwiftUI
 
+/// Represents what the user selected from Quick Open.
+enum QuickOpenSelection {
+    case file(URL)
+    case url(URL)
+}
+
 /// Quick Open overlay for fuzzy file search (Cmd+P).
 /// Follows the CommandPaletteView pattern: TextField + results list + keyboard navigation.
 struct QuickOpenView: View {
     @Binding var isPresented: Bool
     let rootDirectory: URL
     let recentFiles: [String]
-    let onFileSelected: (URL) -> Void
+    let onSelected: (QuickOpenSelection) -> Void
 
     @State private var query = ""
     @State private var selectedIndex: UInt?
     @State private var allPaths: [String] = []
     @State private var isScanning = true
     @FocusState private var isTextFieldFocused: Bool
+
+    /// Whether the current query looks like a URL.
+    private var isURLQuery: Bool {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        // Explicit scheme
+        if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") || trimmed.hasPrefix("file://") {
+            return true
+        }
+        // localhost with optional port
+        if trimmed.hasPrefix("localhost") { return true }
+        // Bare domain heuristic: no spaces, contains a dot, at least 2 chars after dot
+        if !trimmed.contains(" "), let dotIndex = trimmed.firstIndex(of: "."),
+           dotIndex != trimmed.startIndex,
+           trimmed[trimmed.index(after: dotIndex)...].count >= 2 {
+            return true
+        }
+        return false
+    }
 
     private var displayedResults: [FuzzyMatcher.Result] {
         if query.isEmpty {
@@ -61,7 +85,16 @@ struct QuickOpenView: View {
             Divider()
 
             // Results list
-            if isScanning && allPaths.isEmpty {
+            if isURLQuery {
+                // URL detected — show a single "Open URL" row
+                QuickOpenURLRow(
+                    urlString: query.trimmingCharacters(in: .whitespacesAndNewlines),
+                    isSelected: true
+                ) {
+                    submitURLSelection()
+                }
+                .padding(8)
+            } else if isScanning && allPaths.isEmpty {
                 HStack {
                     Spacer()
                     ProgressView()
@@ -73,7 +106,7 @@ struct QuickOpenView: View {
                 }
                 .padding()
             } else if query.isEmpty && recentFiles.isEmpty {
-                Text("Type to search files")
+                Text("Type to search files or enter a URL")
                     .foregroundStyle(.secondary)
                     .font(.subheadline)
                     .padding()
@@ -96,7 +129,7 @@ struct QuickOpenView: View {
                         onSelect: { result in
                             let url = rootDirectory.appendingPathComponent(result.path)
                             isPresented = false
-                            onFileSelected(url)
+                            onSelected(.file(url))
                         }
                     )
                 }
@@ -109,7 +142,7 @@ struct QuickOpenView: View {
                     onSelect: { result in
                         let url = rootDirectory.appendingPathComponent(result.path)
                         isPresented = false
-                        onFileSelected(url)
+                        onSelected(.file(url))
                     }
                 )
             }
@@ -156,6 +189,12 @@ struct QuickOpenView: View {
     }
 
     private func submitSelection() {
+        // If the query is a URL, open it in the browser
+        if isURLQuery {
+            submitURLSelection()
+            return
+        }
+
         let results = displayedResults
         guard !results.isEmpty else { return }
         let index = Int(selectedIndex ?? 0)
@@ -163,10 +202,24 @@ struct QuickOpenView: View {
         let result = results[safeIndex]
         let url = rootDirectory.appendingPathComponent(result.path)
         isPresented = false
-        onFileSelected(url)
+        onSelected(.file(url))
+    }
+
+    private func submitURLSelection() {
+        var trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Auto-add https:// for bare domains (e.g. "github.com")
+        if !trimmed.lowercased().hasPrefix("http://")
+            && !trimmed.lowercased().hasPrefix("https://")
+            && !trimmed.lowercased().hasPrefix("file://") {
+            trimmed = "https://" + trimmed
+        }
+        guard let url = URL(string: trimmed) else { return }
+        isPresented = false
+        onSelected(.url(url))
     }
 
     private func moveSelection(up: Bool) {
+        if isURLQuery { return }
         let results = displayedResults
         guard !results.isEmpty else { return }
         let count = UInt(results.count)
@@ -180,12 +233,18 @@ struct QuickOpenView: View {
     }
 
     private func selectItemAtIndex(_ index: Int) {
+        // URL query mode has no indexed items
+        if isURLQuery {
+            submitURLSelection()
+            return
+        }
+
         let results = displayedResults
         guard index < results.count else { return }
         let result = results[index]
         let url = rootDirectory.appendingPathComponent(result.path)
         isPresented = false
-        onFileSelected(url)
+        onSelected(.file(url))
     }
 }
 
@@ -403,5 +462,50 @@ fileprivate struct QuickOpenRow: View {
         case "png", "jpg", "jpeg", "gif", "svg": return "photo"
         default: return "doc"
         }
+    }
+}
+
+// MARK: - URL Row
+
+fileprivate struct QuickOpenURLRow: View {
+    let urlString: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: "globe")
+                    .foregroundStyle(.blue)
+                    .font(.system(size: 13))
+                    .frame(width: 16)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Open URL")
+                        .font(.system(size: 13, weight: .medium))
+
+                    Text(urlString)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                Text("↵")
+                    .font(.system(size: 11, design: .rounded))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .contentShape(Rectangle())
+            .background(
+                isSelected
+                    ? Color.accentColor.opacity(0.2)
+                    : Color.clear
+            )
+            .cornerRadius(5)
+        }
+        .buttonStyle(.plain)
     }
 }

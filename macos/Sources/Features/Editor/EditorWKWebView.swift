@@ -7,48 +7,65 @@ import GhosttyKit
 /// get routed to the wrong pane.
 class EditorWKWebView: WKWebView {
     weak var surfaceView: Ghostty.SurfaceView?
+    /// When true, browser-specific shortcuts apply (e.g. Cmd+R reloads page
+    /// instead of toggling file picker).
+    var isBrowserMode: Bool = false
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         // Intercept editor-specific shortcuts before WKWebView consumes them.
         // WKWebView handles Cmd+P internally (e.g. Print), preventing it from
         // reaching the menu system where Quick Open is wired.
+        var skipSuper = false
+
         if event.type == .keyDown {
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
 
+            // Focus guard: performKeyEquivalent is called on ALL subviews in the
+            // key window, not just the first responder. Shortcuts that should only
+            // fire when this web view is focused must check this first.
+            let hasFocus: Bool = {
+                guard let firstResponder = window?.firstResponder as? NSView else { return false }
+                return firstResponder === self || firstResponder.isDescendant(of: self)
+            }()
+
             // Cmd+P: Quick Open — only intercept if this web view has focus.
-            // performKeyEquivalent is called on ALL subviews in the key window,
-            // not just the first responder. Without this guard, a BlockNote editor
-            // in Pane A would swallow Cmd+P even when Pane B has focus.
             // Use keyCode (hardware scan code) instead of charactersIgnoringModifiers
             // because the latter returns IME-composed characters (e.g. "ㅔ" for Korean IME).
             if flags == .command, event.keyCode == 0x23 /* P */ {
-                guard let firstResponder = window?.firstResponder as? NSView,
-                      (firstResponder === self || firstResponder.isDescendant(of: self)) else {
-                    return false
-                }
+                guard hasFocus else { return false }
                 surfaceView?.quickOpenVisible.toggle()
                 return true
             }
 
             // Ctrl+C: Close editor and return to terminal.
+            // Must check focus — otherwise Ctrl+C in another tab closes this editor.
             if flags == .control, event.keyCode == 0x08 /* C */ {
+                guard hasFocus else { return false }
                 surfaceView?.closeEditor(nil)
                 return true
             }
 
-            // Cmd+R: Toggle file explorer — WKWebView would consume this as
-            // "reload page" so we intercept it and call the action directly.
+            // Cmd+R: In editor mode, toggle file explorer (WKWebView would
+            // consume this as "reload page"). In browser mode, let WKWebView
+            // handle it natively as page reload.
             if flags == .command, event.keyCode == 0x0F /* R */ {
-                surfaceView?.toggleFilePicker(nil)
-                return true
+                guard hasFocus else { return false }
+                if isBrowserMode {
+                    // Fall through to super.performKeyEquivalent for native reload
+                } else {
+                    surfaceView?.toggleFilePicker(nil)
+                    return true
+                }
             }
 
-            // Cmd+Number (1-9): Let the event propagate up the responder chain
-            // for macOS native tab switching. Uses keyCode for IME compatibility.
+            // Cmd+Number (1-9): Skip WKWebView's super handling but let the event
+            // fall through to the Ghostty keybinding check below. Ghostty uses its
+            // own goto_tab:N bindings rather than macOS native tab switching.
+            // Uses keyCode for IME compatibility.
             // keyCodes: 1=0x12, 2=0x13, 3=0x14, 4=0x15, 5=0x17, 6=0x16, 7=0x1A, 8=0x1C, 9=0x19
             let digitKeyCodes: Set<UInt16> = [0x12, 0x13, 0x14, 0x15, 0x17, 0x16, 0x1A, 0x1C, 0x19]
             if flags == .command, digitKeyCodes.contains(event.keyCode) {
-                return false
+                skipSuper = true
             }
 
         }
@@ -56,7 +73,8 @@ class EditorWKWebView: WKWebView {
         // Let WKWebView handle the event first — this forwards it to the web
         // content process, triggering DOM events (copy, paste, selectAll, etc.)
         // that BlockNote's contenteditable relies on.
-        if super.performKeyEquivalent(with: event) {
+        // Skip for events that should fall through to Ghostty bindings (e.g. Cmd+Number).
+        if !skipSuper, super.performKeyEquivalent(with: event) {
             return true
         }
 
@@ -66,7 +84,7 @@ class EditorWKWebView: WKWebView {
         // NSApp.sendAction to the current first responder (WKWebView content).
         // Uses keyCode (hardware scan code) instead of charactersIgnoringModifiers
         // for Korean IME compatibility — the latter returns composed Hangul characters.
-        if event.type == .keyDown {
+        if !skipSuper, event.type == .keyDown {
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             if flags == .command {
                 switch event.keyCode {

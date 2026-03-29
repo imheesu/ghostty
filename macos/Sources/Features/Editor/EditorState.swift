@@ -16,6 +16,8 @@ class EditorState: ObservableObject {
         case filePicker
         /// Editing a file, replacing the terminal view entirely.
         case editing(FileInfo)
+        /// Browsing a URL in an embedded web browser.
+        case browsing(URL)
 
         static func == (lhs: Mode, rhs: Mode) -> Bool {
             switch (lhs, rhs) {
@@ -23,6 +25,8 @@ class EditorState: ObservableObject {
                 return true
             case (.editing(let a), .editing(let b)):
                 return a.url == b.url
+            case (.browsing(let a), .browsing(let b)):
+                return a == b
             default:
                 return false
             }

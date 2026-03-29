@@ -27,6 +27,7 @@
       font-size: 14px;
       line-height: 1.5;
       -webkit-font-smoothing: antialiased;
+      padding-inline: 27px !important;
     }
 
     /* Heading sizes: compact Notion-like scale */
@@ -73,7 +74,7 @@
     /* ── Obsidian-style frontmatter properties panel ── */
     #frontmatter-panel {
       display: none;
-      margin: 8px 54px 0;
+      margin: 8px 27px 0;
       padding: 10px 12px;
       border-radius: 8px;
       background: rgba(128, 128, 128, 0.06);
@@ -150,12 +151,109 @@
     body.ghostty-themed .fm-tag {
       background: rgba(128, 128, 128, 0.15);
     }
+
+    /* ── Find bar ── */
+    #find-bar {
+      display: none;
+      position: fixed;
+      top: 8px;
+      right: 16px;
+      z-index: 1000;
+      align-items: center;
+      gap: 4px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      background: rgba(240, 240, 240, 0.85);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 13px;
+    }
+    #find-bar.visible { display: flex; }
+
+    #find-input {
+      width: 180px;
+      padding: 4px 8px;
+      border: 1px solid rgba(0, 0, 0, 0.1);
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.9);
+      font-size: 13px;
+      outline: none;
+    }
+    #find-input:focus {
+      border-color: rgba(0, 100, 255, 0.4);
+      box-shadow: 0 0 0 2px rgba(0, 100, 255, 0.1);
+    }
+
+    #find-count {
+      min-width: 60px;
+      text-align: center;
+      font-size: 11px;
+      color: #666;
+      white-space: nowrap;
+    }
+
+    #find-bar button {
+      padding: 2px 6px;
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.7);
+      cursor: pointer;
+      font-size: 11px;
+      line-height: 1;
+      color: #444;
+    }
+    #find-bar button:hover {
+      background: rgba(255, 255, 255, 0.95);
+    }
+
+    /* Dark theme: Ghostty-themed find bar */
+    body.ghostty-themed #find-bar {
+      background: var(--ghostty-menu-bg);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    }
+    body.ghostty-themed #find-input {
+      background: var(--ghostty-bg);
+      color: var(--ghostty-fg);
+      border-color: rgba(255, 255, 255, 0.1);
+    }
+    body.ghostty-themed #find-input:focus {
+      border-color: rgba(100, 160, 255, 0.5);
+      box-shadow: 0 0 0 2px rgba(100, 160, 255, 0.15);
+    }
+    body.ghostty-themed #find-count {
+      color: var(--ghostty-dim);
+    }
+    body.ghostty-themed #find-bar button {
+      background: var(--ghostty-hover-bg);
+      color: var(--ghostty-fg);
+      border-color: rgba(255, 255, 255, 0.06);
+    }
+    body.ghostty-themed #find-bar button:hover {
+      background: var(--ghostty-bg);
+    }
+
+    /* CSS Custom Highlight API for search results */
+    ::highlight(search-results) {
+      background-color: rgba(255, 220, 50, 0.35);
+    }
+    ::highlight(current-match) {
+      background-color: rgba(255, 150, 30, 0.5);
+    }
   </style>
 </head>
 <body>
   <div id="editor-container">
     <div id="frontmatter-panel"></div>
     <div id="root"></div>
+  </div>
+  <div id="find-bar">
+    <input id="find-input" type="text" placeholder="Find..." spellcheck="false" autocomplete="off" />
+    <span id="find-count"></span>
+    <button id="find-prev" title="Previous (Shift+Enter)">&#9650;</button>
+    <button id="find-next" title="Next (Enter)">&#9660;</button>
+    <button id="find-close" title="Close (Esc)">&#10005;</button>
   </div>
   <div id="loading-indicator">Loading BlockNote...</div>
 
@@ -549,6 +647,325 @@
       }
     });
 
+    // ── Find bar (Cmd+F) ──
+    (function setupFindBar() {
+      var findBar = document.getElementById('find-bar');
+      var findInput = document.getElementById('find-input');
+      var findCount = document.getElementById('find-count');
+      var findPrevBtn = document.getElementById('find-prev');
+      var findNextBtn = document.getElementById('find-next');
+      var findCloseBtn = document.getElementById('find-close');
+
+      var matches = [];       // Array of Range objects
+      var currentIndex = -1;
+      var matchesCapped = false;
+      var searchDebounceTimer = null;
+      var contentObserver = null;
+      var contentDebounceTimer = null;
+
+      // ── Core search logic ──
+
+      function performSearch() {
+        clearHighlights();
+        matches = [];
+        currentIndex = -1;
+
+        var query = findInput.value;
+        if (!query) {
+          findCount.textContent = '';
+          return;
+        }
+
+        var editorEl = document.querySelector('.bn-editor');
+        if (!editorEl) return;
+
+        var MAX_MATCHES = 5000;
+        var lowerQuery = query.toLowerCase();
+        var walker = document.createTreeWalker(editorEl, NodeFilter.SHOW_TEXT, null, false);
+        var node;
+        var capped = false;
+
+        while ((node = walker.nextNode())) {
+          var text = node.textContent.toLowerCase();
+          var startPos = 0;
+          var idx;
+          while ((idx = text.indexOf(lowerQuery, startPos)) !== -1) {
+            var range = document.createRange();
+            range.setStart(node, idx);
+            range.setEnd(node, idx + query.length);
+            matches.push(range);
+            if (matches.length >= MAX_MATCHES) { capped = true; break; }
+            startPos = idx + 1;
+          }
+          if (capped) break;
+        }
+
+        if (matches.length === 0) {
+          findCount.textContent = 'No results';
+          return;
+        }
+
+        matchesCapped = capped;
+        currentIndex = 0;
+        applyHighlights();
+        scrollToCurrent();
+        updateCounter();
+      }
+
+      function applyHighlights() {
+        if (!CSS.highlights) return;
+        if (matches.length === 0) {
+          clearHighlights();
+          return;
+        }
+        var allHL = new Highlight();
+        for (var i = 0; i < matches.length; i++) allHL.add(matches[i]);
+        CSS.highlights.set('search-results', allHL);
+        if (currentIndex >= 0 && currentIndex < matches.length) {
+          CSS.highlights.set('current-match', new Highlight(matches[currentIndex]));
+        }
+      }
+
+      function clearHighlights() {
+        if (!CSS.highlights) return;
+        CSS.highlights.delete('search-results');
+        CSS.highlights.delete('current-match');
+      }
+
+      function updateCounter() {
+        if (matches.length === 0) {
+          findCount.textContent = findInput.value ? 'No results' : '';
+        } else {
+          var total = matchesCapped ? matches.length + '+' : matches.length;
+          findCount.textContent = (currentIndex + 1) + ' of ' + total;
+        }
+      }
+
+      function scrollToCurrent() {
+        if (currentIndex < 0 || currentIndex >= matches.length) return;
+        var range = matches[currentIndex];
+        // Check if range is still valid (nodes in document)
+        try {
+          var rect = range.getBoundingClientRect();
+          if (rect.width > 0 || rect.height > 0) {
+            var container = document.getElementById('editor-container');
+            var containerRect = container.getBoundingClientRect();
+            // Scroll if current match is not visible
+            if (rect.top < containerRect.top + 40 || rect.bottom > containerRect.bottom - 10) {
+              var el = range.startContainer.parentElement;
+              if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+          }
+        } catch (e) { /* range invalidated by DOM mutation */ }
+      }
+
+      // ── Navigation ──
+
+      function goToNext() {
+        if (matches.length === 0) return;
+        currentIndex = (currentIndex + 1) % matches.length;
+        applyHighlights();
+        scrollToCurrent();
+        updateCounter();
+      }
+
+      function goToPrev() {
+        if (matches.length === 0) return;
+        currentIndex = (currentIndex - 1 + matches.length) % matches.length;
+        applyHighlights();
+        scrollToCurrent();
+        updateCounter();
+      }
+
+      // ── Open / Close ──
+
+      function openFindBar() {
+        findBar.classList.add('visible');
+        findInput.focus();
+        findInput.select();
+        if (findInput.value) {
+          performSearch();
+        }
+        startContentObserver();
+      }
+
+      function closeFindBar() {
+        findBar.classList.remove('visible');
+        clearHighlights();
+        matches = [];
+        currentIndex = -1;
+        matchesCapped = false;
+        findCount.textContent = '';
+        clearTimeout(searchDebounceTimer);
+        stopContentObserver();
+        // Restore focus to editor
+        if (editorInstance) {
+          try { editorInstance.focus(); } catch (e) {}
+        }
+      }
+
+      // ── MutationObserver: re-search on edits while find bar is open ──
+
+      function startContentObserver() {
+        stopContentObserver();
+        var editorEl = document.querySelector('.bn-editor');
+        if (!editorEl) return;
+
+        contentObserver = new MutationObserver(function() {
+          if (!findBar.classList.contains('visible') || !findInput.value) return;
+          // Immediately clear stale highlights — Ranges may be invalidated by DOM mutation
+          clearHighlights();
+          clearTimeout(contentDebounceTimer);
+          contentDebounceTimer = setTimeout(function() {
+            var prevQuery = findInput.value;
+            if (prevQuery) performSearch();
+          }, 300);
+        });
+
+        contentObserver.observe(editorEl, {
+          childList: true,
+          subtree: true,
+          characterData: true
+        });
+      }
+
+      function stopContentObserver() {
+        if (contentObserver) {
+          contentObserver.disconnect();
+          contentObserver = null;
+        }
+        clearTimeout(contentDebounceTimer);
+      }
+
+      // ── Event handlers: input field ──
+
+      // IME composition guard: skip search during intermediate composition states
+      // (e.g. Korean ㅎ → 하 → 한 triggers multiple input events per syllable)
+      var findIMEActive = false;
+      findInput.addEventListener('compositionstart', function() { findIMEActive = true; });
+      findInput.addEventListener('compositionend', function() {
+        findIMEActive = false;
+        clearTimeout(searchDebounceTimer);
+        performSearch();
+      });
+
+      findInput.addEventListener('input', function() {
+        if (findIMEActive) return;
+        clearTimeout(searchDebounceTimer);
+        searchDebounceTimer = setTimeout(performSearch, 150);
+      });
+
+      findInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          goToNext();
+        } else if (e.key === 'Enter' && e.shiftKey) {
+          e.preventDefault();
+          goToPrev();
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          closeFindBar();
+        } else if ((e.metaKey || e.ctrlKey) && e.code === 'KeyG' && !e.shiftKey) {
+          e.preventDefault();
+          goToNext();
+        } else if ((e.metaKey || e.ctrlKey) && e.code === 'KeyG' && e.shiftKey) {
+          e.preventDefault();
+          goToPrev();
+        }
+      });
+
+      // ── Event handlers: document-level (capture phase) ──
+
+      document.addEventListener('keydown', function(e) {
+        if ((e.metaKey || e.ctrlKey) && e.code === 'KeyF') {
+          e.preventDefault();
+          e.stopPropagation();
+          openFindBar();
+          return;
+        }
+        if (!findBar.classList.contains('visible')) return;
+
+        if ((e.metaKey || e.ctrlKey) && e.code === 'KeyG' && !e.shiftKey) {
+          e.preventDefault();
+          e.stopPropagation();
+          goToNext();
+        } else if ((e.metaKey || e.ctrlKey) && e.code === 'KeyG' && e.shiftKey) {
+          e.preventDefault();
+          e.stopPropagation();
+          goToPrev();
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          closeFindBar();
+        }
+      }, true);  // capture phase
+
+      // Prevent ProseMirror from stealing focus when clicking on find bar
+      findBar.addEventListener('mousedown', function(e) {
+        e.stopPropagation();
+      });
+
+      // Button handlers
+      findPrevBtn.addEventListener('click', goToPrev);
+      findNextBtn.addEventListener('click', goToNext);
+      findCloseBtn.addEventListener('click', closeFindBar);
+    })();
+
+    // ── Backspace handler: prevent sibling depth corruption in nested lists ──
+    // ProseMirror's liftListItem wraps siblings into the current item before
+    // lifting, which corrupts their nesting depth. We intercept Backspace in
+    // the capture phase and use BlockNote's removeBlocks/updateBlock instead,
+    // which only affect the target blockContainer without touching siblings.
+    document.addEventListener('keydown', function(e) {
+      if (e.key !== 'Backspace' || !editorInstance) return;
+      // Don't interfere with Backspace during IME composition (e.g. deleting
+      // part of a composed Korean syllable). Let the IME handle it.
+      if (e.isComposing) return;
+
+      var tiptap = editorInstance._tiptapEditor;
+      var sel = tiptap.state.selection;
+
+      // Only intercept: empty selection at text offset 0
+      if (!sel.empty || sel.$from.parentOffset !== 0) return;
+
+      var cursor = editorInstance.getTextCursorPosition();
+      var block = cursor.block;
+
+      // Only intercept nested paragraph leaves with a next sibling
+      if (!cursor.parentBlock) return;
+      if (block.type !== 'paragraph') return;
+      if (block.children && block.children.length > 0) return;
+      if (!cursor.nextBlock) return;
+
+      e.preventDefault();
+      e.stopImmediatePropagation();
+
+      var content = block.content || [];
+      var isEmpty = content.length === 0 ||
+        (content.length === 1 && content[0].type === 'text' && !content[0].text);
+
+      if (isEmpty) {
+        // Empty block: remove it, move cursor to previous sibling or parent
+        var target = cursor.prevBlock || cursor.parentBlock;
+        editorInstance.removeBlocks([block]);
+        editorInstance.setTextCursorPosition(target, 'end');
+      } else if (cursor.prevBlock) {
+        // Has content + previous sibling: merge into prev
+        var prev = cursor.prevBlock;
+        var merged = [].concat(prev.content || [], content);
+        editorInstance.updateBlock(prev, { content: merged });
+        editorInstance.removeBlocks([block]);
+        editorInstance.setTextCursorPosition(prev, 'end');
+      } else {
+        // First child with content: merge into parent
+        var parent = cursor.parentBlock;
+        var merged = [].concat(parent.content || [], content);
+        editorInstance.updateBlock(parent, { content: merged });
+        editorInstance.removeBlocks([block]);
+        editorInstance.setTextCursorPosition(parent, 'end');
+      }
+    }, true);  // capture phase — runs before ProseMirror/BlockNote handlers
+
     // Signal readiness to Swift
     postMessage('ready', true);
 
@@ -575,26 +992,94 @@
         try { editor.focus(); } catch(e) {}
 
         // IME composition guard: prevent list item duplication during Korean input.
-        // ProseMirror (BlockNote's editor core) receives a spurious 'insertParagraph'
-        // beforeinput event while the Korean IME is composing a syllable inside a list
-        // item, causing the item to split prematurely. We intercept this event during
-        // active composition. Real Enter presses fire compositionend first, so they
-        // are unaffected.
+        //
+        // Two layers of protection:
+        // 1. DOM-level: beforeinput handler blocks spurious 'insertParagraph' events
+        //    during composition. This catches depth-1 splits where the browser fires
+        //    a beforeinput event.
+        // 2. ProseMirror-level: filterTransaction plugin rejects transactions that
+        //    would add new block nodes during composition. At depth 2+, ProseMirror
+        //    creates splitting transactions from DOM mutation reconciliation WITHOUT
+        //    firing beforeinput, so the DOM guard alone is insufficient.
+        //
+        // Shared IME state — both guards read these variables.
+        var imeActive = false;
+        var imeEndTimer = null;
+        var enterTriggeredEnd = false;
+
+        // Layer 1: DOM event listeners
         (function setupIMEGuard() {
           var editorEl = document.querySelector('.bn-editor');
           if (!editorEl) return;
-          var imeActive = false;
+
           editorEl.addEventListener('compositionstart', function() {
+            clearTimeout(imeEndTimer);
             imeActive = true;
+            enterTriggeredEnd = false;
           }, true);
+
+          // Detect Enter keydown during composition — the user intentionally
+          // pressed Enter to end composition AND insert a line break.
+          editorEl.addEventListener('keydown', function(e) {
+            if (imeActive && (e.key === 'Enter' || e.keyCode === 13)) {
+              enterTriggeredEnd = true;
+            }
+          }, true);
+
           editorEl.addEventListener('compositionend', function() {
-            imeActive = false;
+            clearTimeout(imeEndTimer);
+            if (enterTriggeredEnd) {
+              imeActive = false;
+              enterTriggeredEnd = false;
+            } else {
+              // Keep imeActive true across syllable boundaries and through
+              // ProseMirror's post-composition reconciliation (which runs
+              // asynchronously after compositionend).
+              imeEndTimer = setTimeout(function() { imeActive = false; }, 100);
+            }
           }, true);
+
           editorEl.addEventListener('beforeinput', function(e) {
-            if (imeActive && e.inputType === 'insertParagraph') {
+            if ((imeActive || e.isComposing) &&
+                (e.inputType === 'insertParagraph' || e.inputType === 'insertLineBreak')) {
               e.preventDefault();
             }
-          }, true);  // capture phase — runs before ProseMirror's handler
+          }, true);
+        })();
+
+        // Layer 2: ProseMirror transaction filter
+        // At depth 2+, ProseMirror's DOM mutation reconciliation creates a
+        // splitting transaction (ReplaceStep with multiple block children)
+        // without any beforeinput event. We catch this at the transaction level.
+        (function setupIMETransactionFilter() {
+          var tiptap = editor._tiptapEditor;
+          if (!tiptap || !tiptap.view) return;
+          var plugins = tiptap.view.state.plugins;
+          if (!plugins || !plugins.length) return;
+          if (tiptap._imeFilterRegistered) return;
+          tiptap._imeFilterRegistered = true;
+
+          var PluginClass = plugins[0].constructor;
+          var filterPlugin = new PluginClass({
+            filterTransaction: function(tr) {
+              if (!imeActive || !tr.docChanged) return true;
+              for (var i = 0; i < tr.steps.length; i++) {
+                var step = tr.steps[i];
+                if (!step.slice || !step.slice.content) continue;
+                if (step.slice.content.childCount <= 1) continue;
+                // Multiple top-level children in the slice — check if any are
+                // block nodes, which indicates a structural split.
+                var hasBlock = false;
+                step.slice.content.forEach(function(node) {
+                  if (node.isBlock) hasBlock = true;
+                });
+                if (hasBlock) return false;
+              }
+              return true;
+            }
+          });
+
+          tiptap.registerPlugin(filterPlugin);
         })();
       }, [editor]);
 
